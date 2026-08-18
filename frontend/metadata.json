@@ -1,0 +1,6 @@
+{
+  "name": "LifeLoan",
+  "description": "AI-Powered Loan Intelligence & Financial Digital Twin Platform. Predict loan eligibility, estimate borrowing capacity, and plan financial recovery with real-time AI insights.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
