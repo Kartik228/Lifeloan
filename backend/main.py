@@ -3,13 +3,21 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 from google import genai
 import os
-
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import database
 import crud
 import schemas
 import auth
-
+from pydantic import BaseModel
 from ml.predictor import predict
+from database import get_db
+
+class RegisterRequest(BaseModel):
+    full_name: str
+    email: str
+    password: str
+    phone: str
 
 
 # ============================================================
@@ -39,7 +47,16 @@ app = FastAPI(
     title="LifeLoan API",
     version="1.0"
 )
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ============================================================
 # HOME
@@ -270,3 +287,32 @@ USER QUESTION:
             status_code=500,
             detail=f"Gemini error: {str(error)}"
         )
+
+@app.post("/register")
+def register(user: RegisterRequest, db=Depends(get_db)):
+
+    existing_user = crud.get_user_by_email(
+        db,
+        user.email
+    )
+
+    if existing_user:
+        raise HTTPException(
+            status_code=400,
+            detail="An account with this email already exists."
+        )
+
+    new_user = crud.create_user(
+        db,
+        user
+    )
+
+    return {
+        "message": "Account created successfully.",
+        "user": {
+            "id": new_user.id,
+            "full_name": new_user.full_name,
+            "email": new_user.email,
+            "phone": new_user.phone,
+        }
+    }
