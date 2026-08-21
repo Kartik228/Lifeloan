@@ -55,7 +55,6 @@ AMOUNT_COLS = (
 # SHAP SETUP
 # ============================================================
 
-# Extract the preprocessing step and XGBoost model
 default_preprocessor = (
     loan_default_pipeline
     .named_steps["preprocessor"]
@@ -66,7 +65,6 @@ default_model = (
     .named_steps["model"]
 )
 
-# SHAP TreeExplainer works directly with XGBoost
 shap_explainer = shap.TreeExplainer(
     default_model
 )
@@ -396,6 +394,71 @@ def build_dataframe(
 
 
 # ============================================================
+# GET ORIGINAL FEATURE VALUE
+# ============================================================
+
+def get_feature_value(
+    default_df: pd.DataFrame,
+    clean_name: str
+):
+    """
+    Get the actual value used by the model
+    from the original model input dataframe.
+
+    This is important because SHAP feature names
+    may contain preprocessing prefixes such as:
+
+        num__dti
+        cat__purpose_medical
+
+    Those prefixes are removed before looking
+    for the original feature.
+    """
+
+    # Direct match
+    if clean_name in default_df.columns:
+
+        value = default_df.iloc[0][clean_name]
+
+        # Convert numpy values to normal Python values
+        if isinstance(
+            value,
+            np.generic
+        ):
+            value = value.item()
+
+        # Handle NaN
+        if pd.isna(value):
+            return None
+
+        return value
+
+
+    # Sometimes transformed feature names can
+    # still contain additional prefixes.
+    possible_name = clean_name.split("__")[-1]
+
+    if possible_name in default_df.columns:
+
+        value = default_df.iloc[0][possible_name]
+
+        if isinstance(
+            value,
+            np.generic
+        ):
+            value = value.item()
+
+        if pd.isna(value):
+            return None
+
+        return value
+
+
+    # Feature was not present in the dataframe.
+    return None
+
+
+# ============================================================
 # SHAP EXPLANATION
 # ============================================================
 
@@ -414,6 +477,9 @@ def explain_default_prediction(
     Negative SHAP value:
         pushes the model toward lower
         default risk.
+
+    The response also contains the actual
+    feature value used by the model.
     """
 
     # --------------------------------------------------------
@@ -462,6 +528,7 @@ def explain_default_prediction(
     if shap_values.ndim == 2:
 
         # We only have one prediction
+
         shap_values = shap_values[0]
 
 
@@ -490,12 +557,17 @@ def explain_default_prediction(
             shap_value
         )
 
+
         # Ignore extremely tiny contributions
+
         if abs(value) < 0.001:
             continue
 
 
+        # ----------------------------------------------------
         # Remove sklearn transformer prefix
+        # ----------------------------------------------------
+
         clean_name = feature_name
 
         if "__" in clean_name:
@@ -506,7 +578,33 @@ def explain_default_prediction(
             )[1]
 
 
+        # ----------------------------------------------------
+        # Get ACTUAL feature value
+        # ----------------------------------------------------
+
+        feature_value = get_feature_value(
+            default_df,
+            clean_name
+        )
+
+
+        # ----------------------------------------------------
+        # Make value JSON-safe
+        # ----------------------------------------------------
+
+        if isinstance(
+            feature_value,
+            np.generic
+        ):
+            feature_value = feature_value.item()
+
+        if pd.isna(feature_value):
+            feature_value = None
+
+
+        # ----------------------------------------------------
         # Determine direction
+        # ----------------------------------------------------
 
         if value > 0:
 
@@ -521,10 +619,17 @@ def explain_default_prediction(
             )
 
 
+        # ----------------------------------------------------
+        # Add explanation
+        # ----------------------------------------------------
+
         explanations.append({
 
             "feature":
                 clean_name,
+
+            "value":
+                feature_value,
 
             "shap_value":
                 round(
@@ -656,5 +761,5 @@ def predict(
             float(amount_pred),
 
         "xai_factors":
-            xai_factors,
+            xai_factors
     }

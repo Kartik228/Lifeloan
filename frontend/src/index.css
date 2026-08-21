@@ -1044,3 +1044,33 @@
   line-height: 1.6;
   color: #82938a;
 }
+
+/* =====================================================
+   LIFELOAN FORM INPUTS
+   ===================================================== */
+
+.lifeloan-input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #3c4a42;
+  background: #101713;
+  padding: 12px 14px;
+  font-size: 14px;
+  color: #dde4dd;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.lifeloan-input::placeholder {
+  color: #52625a;
+}
+
+.lifeloan-input:focus {
+  border-color: #4edea3;
+  box-shadow: 0 0 0 3px rgba(78, 222, 163, 0.08);
+}
+
+.lifeloan-input option {
+  background: #161d19;
+  color: #dde4dd;
+}
