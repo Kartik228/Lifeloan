@@ -12,10 +12,12 @@ import {
   Loader2,
   ShieldCheck,
   TrendingUp,
+  Sparkles
 } from "lucide-react";
 
 interface LoanApplicationProps {
   onBack: () => void;
+  onOpenAIChat?: () => void;
 }
 
 interface PredictionFactor {
@@ -35,6 +37,7 @@ interface PredictionResult {
 
 const LoanApplication: React.FC<LoanApplicationProps> = ({
   onBack,
+  onOpenAIChat,
 }) => {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -227,6 +230,7 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
 
     if (!Number.isNaN(numberValue)) {
 
+      // Percentages
       if (
         feature === "revol_util" ||
         feature === "dti"
@@ -234,6 +238,7 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
         return `${numberValue.toFixed(2)}%`;
       }
 
+      // Credit history
       if (
         feature === "credit_history_length"
       ) {
@@ -261,6 +266,7 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
         return `${months} months`;
       }
 
+      // Purpose fields
       if (
         feature.startsWith("purpose_")
       ) {
@@ -269,6 +275,7 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
           : "No";
       }
 
+      // Currency
       if (
         feature === "annual_inc" ||
         feature === "loan_amnt" ||
@@ -281,6 +288,7 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
         ).toLocaleString("en-IN")}`;
       }
 
+      // Ratios
       if (
         feature === "credit_per_year" ||
         feature === "inq_per_year" ||
@@ -295,6 +303,7 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
         return numberValue.toFixed(2);
       }
 
+      // Integers
       if (
         Number.isInteger(numberValue)
       ) {
@@ -606,7 +615,8 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
           }
         );
 
-      const data = await response.json();
+      const data =
+        await response.json();
 
       if (!response.ok) {
         throw new Error(
@@ -619,93 +629,6 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
         "ML prediction:",
         data
       );
-
-      // ========================================================
-      // SAVE APPROVED LOAN TO DATABASE
-      // ========================================================
-
-      if (data.decision === "Approved") {
-
-        const userId =
-          localStorage.getItem("user_id") ||
-          "1";
-
-        const loanPayload = {
-          title:
-            formData.loanPurpose
-              ? `${formData.loanPurpose.charAt(0).toUpperCase()}${formData.loanPurpose.slice(1)} Loan`
-              : "Personal Loan",
-
-          loan_type:
-            formData.loanPurpose ||
-            "personal",
-
-          amount:
-            loanAmount,
-
-          remaining_amount:
-            loanAmount,
-
-          emi:
-            Math.round(
-              installment
-            ),
-
-          interest_rate:
-            12,
-
-          tenure_months:
-            loanTerm,
-
-          progress_percentage:
-            0,
-
-          status:
-            "active",
-
-          created_at:
-            new Date()
-              .toISOString()
-              .split("T")[0],
-        };
-
-        console.log(
-          "Saving approved loan:",
-          loanPayload
-        );
-
-        const loanResponse =
-          await fetch(
-            `http://127.0.0.1:8000/loans?user_id=${userId}`,
-            {
-              method: "POST",
-
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-
-              body: JSON.stringify(
-                loanPayload
-              ),
-            }
-          );
-
-        const loanData =
-          await loanResponse.json();
-
-        if (!loanResponse.ok) {
-          throw new Error(
-            loanData.detail ||
-              "Loan was approved but could not be saved."
-          );
-        }
-
-        console.log(
-          "Loan saved successfully:",
-          loanData
-        );
-      }
 
       setPrediction(data);
 
@@ -942,9 +865,7 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
 
             </div>
 
-            {/* =====================================================
-                LOAN AMOUNTS
-            ===================================================== */}
+            {/* PREDICTED AMOUNT */}
 
             <div className="rounded-3xl border border-[#242c27] bg-[#161d19] p-7">
 
@@ -954,48 +875,27 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
 
               </div>
 
-              {/* REQUESTED AMOUNT */}
-
               <p className="mt-6 text-xs uppercase tracking-wider text-[#71837a]">
-                Requested Loan Amount
+                Predicted Loan Amount
               </p>
 
-              <p className="mt-2 text-3xl font-bold text-[#dde4dd]">
+              <p className="mt-2 text-3xl font-bold">
 
                 ₹
-                {Number(
-                  formData.loanAmount || 0
-                ).toLocaleString("en-IN")}
+                {Math.round(
+                  Number(
+                    prediction.predicted_loan_amount ||
+                      0
+                  )
+                ).toLocaleString(
+                  "en-IN"
+                )}
 
               </p>
 
-              {/* AI RECOMMENDED AMOUNT */}
-
-              <div className="mt-6 border-t border-[#242c27] pt-5">
-
-                <p className="text-xs uppercase tracking-wider text-[#71837a]">
-                  AI Recommended Amount
-                </p>
-
-                <p className="mt-2 text-2xl font-bold text-[#4edea3]">
-
-                  ₹
-                  {Math.round(
-                    Number(
-                      prediction.predicted_loan_amount ||
-                        0
-                    )
-                  ).toLocaleString("en-IN")}
-
-                </p>
-
-              </div>
-
               <p className="mt-4 text-xs leading-5 text-[#71837a]">
-                The recommended amount is generated
-                by the LifeLoan loan amount prediction
-                model and may differ from the amount
-                you requested.
+                This value comes from the LifeLoan
+                loan amount prediction model.
               </p>
 
             </div>
@@ -1208,6 +1108,41 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
             </div>
 
           </section>
+
+{/* =====================================================
+    ASK LIFELOAN AI
+===================================================== */}
+
+<section className="mt-8 rounded-3xl border border-[#10b981]/20 bg-[#161d19] p-7">
+
+  <div className="flex flex-col items-center text-center">
+
+    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#10b981]/10">
+      <Sparkles className="h-5 w-5 text-[#4edea3]" />
+    </div>
+
+    <h2 className="mt-4 font-serif text-2xl font-bold">
+      Have questions about your assessment?
+    </h2>
+
+    <p className="mx-auto mt-2 max-w-lg text-xs leading-5 text-[#71837a]">
+      Ask LifeLoan AI why your application received this
+      result, which factors affected your risk, or how
+      you can improve your borrowing position.
+    </p>
+
+    <button
+      type="button"
+      onClick={() => onOpenAIChat?.()}
+      className="mt-5 flex items-center gap-2 rounded-xl bg-[#10b981] px-6 py-3 text-xs font-bold text-[#003824] transition hover:bg-[#4edea3]"
+    >
+      <Sparkles className="h-4 w-4" />
+      Ask LifeLoan AI
+    </button>
+
+  </div>
+
+</section>
 
           {/* DISCLAIMER */}
 

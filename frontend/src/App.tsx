@@ -87,7 +87,7 @@ export default function App() {
 
 
   // =====================================================
-  // EXISTING APP STATE
+  // APP STATE
   // =====================================================
 
   const [loans, setLoans] =
@@ -160,9 +160,6 @@ export default function App() {
     setCurrentPage("dashboard");
 
 
-    // Replace login history entry so that
-    // browser Back doesn't return to login page.
-
     if (
       window.location.hash ===
       "#login"
@@ -189,8 +186,6 @@ export default function App() {
   // =====================================================
 
   const handleOpenLogin = () => {
-
-    // Prevent duplicate #login entries
 
     if (
       window.location.hash !==
@@ -308,9 +303,6 @@ export default function App() {
 
     setIsAIChatOpen(false);
 
-
-    // Make sure logout returns
-    // to the normal landing URL.
 
     if (
       window.location.hash
@@ -477,70 +469,119 @@ export default function App() {
 
     return (
 
-      <Dashboard
+      <>
 
-        onLogout={
-          handleLogout
-        }
+        <Dashboard
 
-        onNavigate={
-          (page) => {
-
-            if (
-              page ===
-              "loans"
-            ) {
-
-              setCurrentPage(
-                "loans"
-              );
-
-              return;
-
-            }
-
-
-            if (
-              page ===
-              "apply"
-            ) {
-
-              setCurrentPage(
-                "apply"
-              );
-
-              return;
-
-            }
-
-
-            // =================================================
-            // EMI CALCULATOR
-            // =================================================
-
-            if (
-              page ===
-              "emi"
-            ) {
-
-              setCurrentPage(
-                "emi"
-              );
-
-              return;
-
-            }
-
-
-            console.log(
-              "Navigate to:",
-              page
-            );
-
+          onLogout={
+            handleLogout
           }
-        }
 
-      />
+          onNavigate={
+            (page) => {
+
+              // =================================================
+              // MY LOANS
+              // =================================================
+
+              if (
+                page ===
+                "loans"
+              ) {
+
+                setCurrentPage(
+                  "loans"
+                );
+
+                return;
+
+              }
+
+
+              // =================================================
+              // APPLY
+              // =================================================
+
+              if (
+                page ===
+                "apply"
+              ) {
+
+                setCurrentPage(
+                  "apply"
+                );
+
+                return;
+
+              }
+
+
+              // =================================================
+              // EMI
+              // =================================================
+
+              if (
+                page ===
+                "emi"
+              ) {
+
+                setCurrentPage(
+                  "emi"
+                );
+
+                return;
+
+              }
+
+
+              // =================================================
+              // AI ADVISOR
+              // =================================================
+
+              if (
+                page ===
+                "advisor"
+              ) {
+
+                setIsAIChatOpen(
+                  true
+                );
+
+                return;
+
+              }
+
+
+              console.log(
+                "Navigate to:",
+                page
+              );
+
+            }
+          }
+
+        />
+
+
+        {/* =================================================
+            AI CHAT ON DASHBOARD
+            ================================================= */}
+
+        <AIChatModal
+
+          isOpen={
+            isAIChatOpen
+          }
+
+          onClose={() =>
+            setIsAIChatOpen(
+              false
+            )
+          }
+
+        />
+
+      </>
 
     );
 
@@ -561,10 +602,6 @@ export default function App() {
 
       <MyLoans
 
-        loans={
-          loans
-        }
-
         onBack={() => {
 
           setCurrentPage(
@@ -572,10 +609,6 @@ export default function App() {
           );
 
         }}
-
-        onPayEmi={
-          handlePayEmi
-        }
 
       />
 
@@ -596,17 +629,46 @@ export default function App() {
 
     return (
 
-      <LoanApplication
+      <>
 
-        onBack={() => {
+        <LoanApplication
 
-          setCurrentPage(
-            "dashboard"
-          );
+          onBack={() => {
 
-        }}
+            setCurrentPage(
+              "dashboard"
+            );
 
-      />
+          }}
+
+          onOpenAIChat={() =>
+            setIsAIChatOpen(
+              true
+            )
+          }
+
+        />
+
+
+        {/* =================================================
+            AI CHAT FROM LOAN ASSESSMENT
+            ================================================= */}
+
+        <AIChatModal
+
+          isOpen={
+            isAIChatOpen
+          }
+
+          onClose={() =>
+            setIsAIChatOpen(
+              false
+            )
+          }
+
+        />
+
+      </>
 
     );
 
@@ -709,11 +771,6 @@ export default function App() {
 
       <main>
 
-
-        {/* =================================================
-            HERO
-            ================================================= */}
-
         <Hero
 
           onOpenCheckEligibility={
@@ -726,10 +783,6 @@ export default function App() {
 
         />
 
-
-        {/* =================================================
-            FEATURES
-            ================================================= */}
 
         <BentoGrid
 
@@ -756,10 +809,6 @@ export default function App() {
         />
 
 
-        {/* =================================================
-            DIGITAL TWIN
-            ================================================= */}
-
         <DigitalTwin
 
           onOpenAIChat={() =>
@@ -770,10 +819,6 @@ export default function App() {
 
         />
 
-
-        {/* =================================================
-            HOW IT WORKS + FAQ
-            ================================================= */}
 
         <HowItWorksAndFAQ />
 

@@ -75,17 +75,34 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       }
 
       // Store JWT token
-      localStorage.setItem(
-        "lifeloan_token",
-        data.access_token
-      );
+    // ==========================================
+// STORE JWT TOKEN
+// ==========================================
 
-      // Store login state
-      localStorage.setItem(
-        "lifeloan_logged_in",
-        "true"
-      );
+localStorage.setItem(
+  "lifeloan_token",
+  data.access_token
+);
 
+
+// ==========================================
+// STORE USER ID
+// ==========================================
+
+localStorage.setItem(
+  "user_id",
+  String(data.user_id)
+);
+
+
+// ==========================================
+// STORE LOGIN STATE
+// ==========================================
+
+localStorage.setItem(
+  "lifeloan_logged_in",
+  "true"
+);
       // Notify parent
       if (onLoginSuccess) {
         onLoginSuccess();
