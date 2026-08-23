@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-
+import RecoveryPlanner from "./components/RecoveryPlanner";
 import Dashboard from "./components/Dashboard";
 import { Navbar } from "./components/Navbar";
 import { Hero } from "./components/Hero";
@@ -489,6 +489,7 @@ export default function App() {
                 "loans"
               ) {
 
+                
                 setCurrentPage(
                   "loans"
                 );
@@ -545,6 +546,24 @@ export default function App() {
 
                 setIsAIChatOpen(
                   true
+                );
+
+                return;
+
+              }
+
+
+              // =================================================
+              // FINANCIAL RECOVERY PLANNER
+              // =================================================
+
+              if (
+                page ===
+                "recovery"
+              ) {
+
+                setCurrentPage(
+                  "recovery"
                 );
 
                 return;
@@ -669,6 +688,35 @@ export default function App() {
         />
 
       </>
+
+    );
+
+  }
+
+
+  // =====================================================
+  // FINANCIAL RECOVERY PLANNER
+  // =====================================================
+
+  if (
+    isLoggedIn &&
+    currentPage ===
+      "recovery"
+  ) {
+
+    return (
+
+      <RecoveryPlanner
+
+        onBack={() => {
+
+          setCurrentPage(
+            "dashboard"
+          );
+
+        }}
+
+      />
 
     );
 
