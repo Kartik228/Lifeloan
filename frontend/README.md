@@ -1,20 +1,24 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# LifeLoan Frontend
 
-# Run and deploy your AI Studio app
-
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/27c1472e-3143-4e7d-b513-c69a9a2a9dc1
+React + TypeScript + Vite frontend for LifeLoan Financial Intelligence.
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js (v18+)
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+   ```bash
+   npm install
+   ```
+
+2. (Optional) Set `VITE_API_URL` in `.env` if your backend runs on a non-default port:
+   ```env
+   VITE_API_URL="http://localhost:8000"
+   ```
+
+3. Run the development server:
+   ```bash
+   npm run dev
+   ```
+
+> **Security Note:** The Gemini API key is kept server-side only in `backend/.env`. The frontend communicates exclusively with the FastAPI backend.

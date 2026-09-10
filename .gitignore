@@ -1,0 +1,51 @@
+# ============================================================
+# LifeLoan Root Git Ignore
+# ============================================================
+
+# Secrets & Environment Configurations
+.env
+.env.*
+!.env.example
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Node & Frontend
+node_modules/
+frontend/node_modules/
+frontend-old/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Databases & Local state
+*.db
+*.sqlite
+*.sqlite3
+lifeloan.db
+backend/lifeloan.db
+
+# OS / Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test & Coverage artifacts
+.coverage
+htmlcov/
+.pytest_cache/
