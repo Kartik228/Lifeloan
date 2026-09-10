@@ -9,13 +9,14 @@ import {
   Clock3,
   ChevronDown,
   ChevronUp,
+  PlusCircle,
 } from "lucide-react";
+import { api, formatINR, formatDateIN } from "../api";
+import { PaymentConfirmationModal } from "./PaymentConfirmationModal";
 
 interface MyLoansProps {
   onBack: () => void;
-
-  // Keep this optional for now so your App.tsx
-  // does not immediately break.
+  onApplyLoan?: () => void;
   userId?: number;
 }
 
@@ -32,6 +33,7 @@ interface LoanItem {
   progressPercentage: number;
   status: string;
   createdAt: string;
+  nextDueDate?: string | null;
 }
 
 interface PaymentRecord {
@@ -39,6 +41,7 @@ interface PaymentRecord {
   loanId: string;
   amount: number;
   date: string;
+  dueDate?: string | null;
   status: "paid" | "upcoming" | "scheduled";
   label: string;
 }
@@ -56,6 +59,7 @@ interface BackendLoan {
   progress_percentage: number;
   status: string;
   created_at: string;
+  next_due_date?: string | null;
   payments?: BackendPayment[];
 }
 
@@ -64,32 +68,23 @@ interface BackendPayment {
   loan_id: number;
   amount: number;
   payment_date: string;
+  due_date?: string | null;
   status: string;
 }
 
-const API_URL = "http://127.0.0.1:8000";
+interface ScheduleItem {
+  installment_number: number;
+  due_date: string;
+  amount: number;
+  status: "paid" | "upcoming";
+  payment_date?: string | null;
+}
+
 
 const MyLoans: React.FC<MyLoansProps> = ({
   onBack,
-  userId,
+  onApplyLoan,
 }) => {
-  // ============================================================
-  // USER
-  // ============================================================
-
-  /*
-    For now:
-
-    If App.tsx passes userId -> use it.
-
-    Otherwise use 1 because our Swagger testing
-    currently uses user_id = 1.
-
-    Later we will connect this to the actual
-    logged-in user's JWT/account.
-  */
-
-  const currentUserId = userId ?? 1;
 
   // ============================================================
   // STATE
@@ -103,12 +98,26 @@ const MyLoans: React.FC<MyLoansProps> = ({
   const [expandedLoan, setExpandedLoan] =
     useState<string | null>(null);
 
+  const [schedules, setSchedules] = useState<
+    Record<string, ScheduleItem[]>
+  >({});
+
+  const [loadingSchedule, setLoadingSchedule] = useState<
+    Record<string, boolean>
+  >({});
+
   const [loading, setLoading] = useState(true);
 
   const [paymentLoading, setPaymentLoading] =
     useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
+
+  const [selectedLoanForPayment, setSelectedLoanForPayment] =
+    useState<LoanItem | null>(null);
+
+  const [isPaymentModalOpen, setIsPaymentModalOpen] =
+    useState(false);
 
   // ============================================================
   // FORMAT CURRENCY
@@ -179,6 +188,8 @@ const MyLoans: React.FC<MyLoansProps> = ({
       status: loan.status,
 
       createdAt: loan.created_at,
+
+      nextDueDate: loan.next_due_date || null,
     };
   };
 
@@ -191,30 +202,16 @@ const MyLoans: React.FC<MyLoansProps> = ({
       setLoading(true);
       setError(null);
 
-      const response = await fetch(
-        `${API_URL}/loans?user_id=${currentUserId}`
-      );
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to load loans (${response.status})`
-        );
-      }
-
-      const data: BackendLoan[] =
-        await response.json();
-
+      const data = await api.get<BackendLoan[]>("/loans");
       const mappedLoans = data.map(mapLoan);
-
       setLoans(mappedLoans);
+      await loadPaymentHistory(mappedLoans);
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("LOAD LOANS ERROR:", err);
-
       setError(
-        "Unable to load your loans. Please make sure the LifeLoan backend is running."
+        err.message || "Unable to load your loans. Please make sure the LifeLoan backend is running."
       );
-
     } finally {
       setLoading(false);
     }
@@ -232,52 +229,26 @@ const MyLoans: React.FC<MyLoansProps> = ({
 
       for (const loan of loanList) {
         try {
-          const response = await fetch(
-            `${API_URL}/loans/${loan.id}/payments?user_id=${currentUserId}`
+          const payments = await api.get<BackendPayment[]>(
+            `/loans/${loan.id}/payments`
           );
-
-          if (!response.ok) {
-            console.warn(
-              `Could not load payments for loan ${loan.id}`
-            );
-
-            continue;
-          }
-
-          const payments: BackendPayment[] =
-            await response.json();
 
           payments.forEach((payment) => {
             allPayments.push({
               id: String(payment.id),
-
-              loanId: String(
-                payment.loan_id
-              ),
-
-              amount: Number(
-                payment.amount
-              ),
-
-              date: formatDate(
-                payment.payment_date
-              ),
-
-              status:
-                payment.status === "paid"
-                  ? "paid"
-                  : "scheduled",
-
-              label:
-                payment.status === "paid"
-                  ? "EMI payment"
-                  : "Scheduled EMI",
+              loanId: String(payment.loan_id),
+              amount: Number(payment.amount),
+              date: formatDateIN(payment.payment_date),
+              dueDate: payment.due_date ? formatDateIN(payment.due_date) : null,
+              status: payment.status === "paid" ? "paid" : "scheduled",
+              label: payment.status === "paid" ? "EMI payment" : "Scheduled EMI",
             });
           });
 
+
         } catch (paymentError) {
-          console.error(
-            `PAYMENT HISTORY ERROR FOR LOAN ${loan.id}:`,
+          console.warn(
+            `Could not load payments for loan ${loan.id}:`,
             paymentError
           );
         }
@@ -298,50 +269,8 @@ const MyLoans: React.FC<MyLoansProps> = ({
   // ============================================================
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const response = await fetch(
-          `${API_URL}/loans?user_id=${currentUserId}`
-        );
-
-        if (!response.ok) {
-          throw new Error(
-            `Failed to load loans (${response.status})`
-          );
-        }
-
-        const data: BackendLoan[] =
-          await response.json();
-
-        const mappedLoans =
-          data.map(mapLoan);
-
-        setLoans(mappedLoans);
-
-        await loadPaymentHistory(
-          mappedLoans
-        );
-
-      } catch (err) {
-        console.error(
-          "INITIAL LOAD ERROR:",
-          err
-        );
-
-        setError(
-          "Unable to load your loans. Please make sure the LifeLoan backend is running."
-        );
-
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadData();
-  }, [currentUserId]);
+    loadLoans();
+  }, []);
 
   // ============================================================
   // FILTER LOANS
@@ -389,18 +318,35 @@ const MyLoans: React.FC<MyLoansProps> = ({
       : null;
 
   // ============================================================
+  // LOAD SCHEDULE
+  // ============================================================
+
+  const loadSchedule = async (loanId: string) => {
+    try {
+      setLoadingSchedule((prev) => ({ ...prev, [loanId]: true }));
+      const data = await api.get<ScheduleItem[]>(`/loans/${loanId}/schedule`);
+      setSchedules((prev) => ({ ...prev, [loanId]: data }));
+    } catch (err) {
+      console.error(`Error loading schedule for loan ${loanId}:`, err);
+    } finally {
+      setLoadingSchedule((prev) => ({ ...prev, [loanId]: false }));
+    }
+  };
+
+  // ============================================================
   // TOGGLE LOAN
   // ============================================================
 
   const toggleLoan = (
     loanId: string
   ) => {
-    setExpandedLoan(
-      (current) =>
-        current === loanId
-          ? null
-          : loanId
-    );
+    setExpandedLoan((current) => {
+      const nextVal = current === loanId ? null : loanId;
+      if (nextVal) {
+        loadSchedule(loanId);
+      }
+      return nextVal;
+    });
   };
 
   // ============================================================
@@ -417,111 +363,20 @@ const MyLoans: React.FC<MyLoansProps> = ({
   };
 
   // ============================================================
-  // PAY EMI
+  // PAY EMI (SAFE 2-STEP CONFIRMATION FLOW)
   // ============================================================
 
-  const handlePayEmi = async (
+  const handlePayEmi = (
     loan: LoanItem
   ) => {
-    try {
-      setPaymentLoading(loan.id);
-      setError(null);
+    setSelectedLoanForPayment(loan);
+    setIsPaymentModalOpen(true);
+  };
 
-      const response = await fetch(
-        `${API_URL}/loans/${loan.id}/pay-emi?user_id=${currentUserId}`,
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-
-          body: JSON.stringify({
-            amount: loan.emi,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorText =
-          await response.text();
-
-        throw new Error(
-          errorText ||
-            `Payment failed (${response.status})`
-        );
-      }
-
-      /*
-        Backend returns the updated loan.
-      */
-
-      const updatedLoan: BackendLoan =
-        await response.json();
-
-      const mappedLoan =
-        mapLoan(updatedLoan);
-
-      /*
-        Update the loan immediately
-        without waiting for another request.
-      */
-
-      setLoans((currentLoans) =>
-        currentLoans.map(
-          (existingLoan) =>
-            existingLoan.id ===
-            mappedLoan.id
-              ? mappedLoan
-              : existingLoan
-        )
-      );
-
-      /*
-        Reload payment history so the
-        new payment appears in the
-        schedule.
-      */
-
-      await loadPaymentHistory(
-        loans.map((existingLoan) =>
-          existingLoan.id ===
-          mappedLoan.id
-            ? mappedLoan
-            : existingLoan
-        )
-      );
-
-      /*
-        Automatically open the loan
-        after payment.
-      */
-
-      setExpandedLoan(
-        mappedLoan.id
-      );
-
-      alert(
-        `EMI payment of ${formatCurrency(
-          loan.emi
-        )} recorded successfully!`
-      );
-
-    } catch (err) {
-      console.error(
-        "PAY EMI ERROR:",
-        err
-      );
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to process EMI payment."
-      );
-
-    } finally {
-      setPaymentLoading(null);
+  const handlePaymentSuccess = async () => {
+    await loadLoans();
+    if (selectedLoanForPayment) {
+      await loadSchedule(selectedLoanForPayment.id);
     }
   };
 
@@ -819,13 +674,13 @@ const MyLoans: React.FC<MyLoansProps> = ({
 
         {nextLoan && (
 
-          <section className="mb-10 rounded-2xl border border-[#4edea3]/20 bg-[#102018] p-6">
+          <section className="mb-10 rounded-2xl border border-[#4edea3]/20 bg-[#102018] p-6 shadow-lg">
 
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
 
               <div className="flex items-center gap-4">
 
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#10b981]/10">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#10b981]/10 border border-[#10b981]/30">
 
                   <Clock3 className="h-5 w-5 text-[#4edea3]" />
 
@@ -841,8 +696,12 @@ const MyLoans: React.FC<MyLoansProps> = ({
                     Your next payment is scheduled
                   </h2>
 
-                  <p className="mt-1 text-xs text-[#71837a]">
-                    {nextLoan.title} · Next EMI
+                  <p className="mt-1 text-sm font-semibold text-[#dde4dd]">
+                    {nextLoan.title}
+                  </p>
+
+                  <p className="mt-0.5 text-xs text-[#819087]">
+                    Next EMI: <span className="font-bold text-[#4edea3]">{nextLoan.nextDueDate ? formatDateIN(nextLoan.nextDueDate) : "Due date unavailable"}</span>
                   </p>
 
                 </div>
@@ -870,6 +729,7 @@ const MyLoans: React.FC<MyLoansProps> = ({
           </section>
 
         )}
+
 
         {/* ====================================================
             ACTIVE LOANS
@@ -899,9 +759,19 @@ const MyLoans: React.FC<MyLoansProps> = ({
                 No active loans
               </h3>
 
-              <p className="mt-2 text-xs text-[#71837a]">
-                You currently don't have any active loans.
+              <p className="mt-2 text-xs text-[#71837a] max-w-sm mx-auto">
+                You currently don't have any active loans in your LifeLoan portfolio. Submit an application to get started.
               </p>
+
+              {onApplyLoan && (
+                <button
+                  onClick={onApplyLoan}
+                  className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#10b981] px-5 py-2.5 text-xs font-bold text-[#003824] transition hover:bg-[#4edea3]"
+                >
+                  <PlusCircle className="h-4 w-4" />
+                  Apply for a Loan
+                </button>
+              )}
 
             </div>
 
@@ -983,6 +853,8 @@ const MyLoans: React.FC<MyLoansProps> = ({
 
                         {/* EMI */}
 
+                        {/* EMI */}
+
                         <div className="lg:text-right">
 
                           <p className="text-xs text-[#71837a]">
@@ -997,13 +869,17 @@ const MyLoans: React.FC<MyLoansProps> = ({
 
                           </p>
 
+                          <p className="mt-1 text-xs text-[#71837a]">
+                            Due: <span className="font-semibold text-[#4edea3]">{loan.nextDueDate ? formatDateIN(loan.nextDueDate) : "Due date unavailable"}</span>
+                          </p>
+
                         </div>
 
                       </div>
 
                       {/* LOAN DETAILS */}
 
-                      <div className="mt-7 grid gap-4 border-y border-[#242c27] py-5 sm:grid-cols-3">
+                      <div className="mt-7 grid gap-4 border-y border-[#242c27] py-5 sm:grid-cols-4">
 
                         <div>
 
@@ -1036,6 +912,18 @@ const MyLoans: React.FC<MyLoansProps> = ({
                               )
                             )}
 
+                          </p>
+
+                        </div>
+
+                        <div>
+
+                          <p className="text-[10px] uppercase tracking-wider text-[#71837a]">
+                            Next Due
+                          </p>
+
+                          <p className="mt-1 font-semibold text-[#4edea3]">
+                            {loan.nextDueDate ? formatDateIN(loan.nextDueDate) : "Due date unavailable"}
                           </p>
 
                         </div>
@@ -1107,7 +995,7 @@ const MyLoans: React.FC<MyLoansProps> = ({
 
                           <CalendarDays className="h-4 w-4 text-[#4edea3]" />
 
-                          Next EMI payment scheduled
+                          <span>Next EMI: <strong className="text-[#dde4dd]">{formatCurrency(loan.emi)}/mo</strong> · Due: <strong className="text-[#4edea3]">{loan.nextDueDate ? formatDateIN(loan.nextDueDate) : "Due date unavailable"}</strong></span>
 
                         </div>
 
@@ -1152,7 +1040,7 @@ const MyLoans: React.FC<MyLoansProps> = ({
 
                             {isPaying
                               ? "Processing..."
-                              : "Pay EMI"}
+                              : "Record EMI Payment"}
 
                           </button>
 
@@ -1162,194 +1050,225 @@ const MyLoans: React.FC<MyLoansProps> = ({
 
                       {/* PAYMENT SCHEDULE */}
 
-                      {isExpanded && (
+                      {isExpanded && (() => {
+                        const loanSchedule = schedules[loan.id] || [];
+                        const isLoadingSched = !!loadingSchedule[loan.id];
+                        const completedSchedule = loanSchedule.filter(
+                          (item) => item.status === "paid"
+                        );
+                        const upcomingSchedule = loanSchedule.filter(
+                          (item) => item.status === "upcoming"
+                        );
 
-                        <div className="mt-6 rounded-2xl border border-[#242c27] bg-[#101713] p-5">
-
-                          <div className="mb-5">
-
-                            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#4edea3]">
-                              PAYMENT SCHEDULE
-                            </p>
-
-                            <h4 className="mt-1 text-lg font-bold">
-                              EMI Payment History
-                            </h4>
-
-                            <p className="mt-1 text-xs text-[#71837a]">
-                              Track your completed and upcoming payments.
-                            </p>
-
-                          </div>
-
-                          <div className="space-y-3">
-
-                            {loanHistory.length === 0 ? (
-
-                              <div className="rounded-xl border border-dashed border-[#3c4a42] p-5 text-center">
-
-                                <p className="text-xs text-[#71837a]">
-                                  No EMI payments recorded yet.
+                        return (
+                          <div className="mt-6 rounded-2xl border border-[#242c27] bg-[#101713] p-5">
+                            <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-[#242c27] pb-4">
+                              <div>
+                                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#4edea3]">
+                                  PAYMENT SCHEDULE
                                 </p>
-
+                                <h4 className="mt-1 text-lg font-bold">
+                                  EMI Schedule & Payment History
+                                </h4>
+                                <p className="mt-1 text-xs text-[#71837a]">
+                                  Actual schedule derived from loan start, tenure, and payment records.
+                                </p>
                               </div>
 
+                              <div className="flex items-center gap-2">
+                                <span className="rounded-full border border-[#4edea3]/20 bg-[#10b981]/10 px-3 py-1 text-[11px] font-semibold text-[#4edea3]">
+                                  {completedSchedule.length} Paid
+                                </span>
+                                <span className="rounded-full border border-[#3c4a42] bg-[#161d19] px-3 py-1 text-[11px] font-semibold text-[#9aa9a1]">
+                                  {upcomingSchedule.length} Upcoming
+                                </span>
+                              </div>
+                            </div>
+
+                            {isLoadingSched ? (
+                              <div className="py-8 text-center">
+                                <div className="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-[#242c27] border-t-[#4edea3]" />
+                                <p className="mt-3 text-xs text-[#71837a]">
+                                  Loading payment schedule...
+                                </p>
+                              </div>
+                            ) : loanSchedule.length === 0 ? (
+                              <div className="rounded-xl border border-dashed border-[#3c4a42] p-5 text-center">
+                                <p className="text-xs text-[#71837a]">
+                                  {loan.createdAt
+                                    ? "Calculating schedule..."
+                                    : "Due date unavailable"}
+                                </p>
+                              </div>
                             ) : (
+                              <div className="space-y-6">
+                                {/* COMPLETED PAYMENTS */}
+                                {completedSchedule.length > 0 && (
+                                  <div>
+                                    <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-[#819087]">
+                                      Completed Payments ({completedSchedule.length})
+                                    </p>
+                                    <div className="space-y-2.5">
+                                      {completedSchedule.map((item) => (
+                                        <div
+                                          key={`paid-${item.installment_number}`}
+                                          className="flex flex-col gap-3 rounded-xl border border-[#242c27] bg-[#161d19] p-4 sm:flex-row sm:items-center sm:justify-between"
+                                        >
+                                          <div className="flex items-center gap-3">
+                                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#10b981]/10 border border-[#10b981]/30">
+                                              <CheckCircle2 className="h-4 w-4 text-[#4edea3]" />
+                                            </div>
+                                            <div>
+                                              <p className="text-sm font-semibold text-[#dde4dd]">
+                                                {formatDateIN(item.due_date)}
+                                              </p>
+                                              <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-[#71837a]">
+                                                <span>
+                                                  Due:{" "}
+                                                  <strong className="text-[#a6b6ad]">
+                                                    {formatDateIN(item.due_date)}
+                                                  </strong>
+                                                </span>
+                                                {item.payment_date && (
+                                                  <>
+                                                    <span className="text-[#3c4a42]">•</span>
+                                                    <span>
+                                                      Paid on:{" "}
+                                                      <strong className="text-[#4edea3]">
+                                                        {formatDateIN(item.payment_date)}
+                                                      </strong>
+                                                    </span>
+                                                  </>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
 
-                              loanHistory.map(
-                                (payment) => (
-
-                                  <div
-                                    key={
-                                      payment.id
-                                    }
-                                    className="flex flex-col gap-3 rounded-xl border border-[#242c27] bg-[#161d19] p-4 sm:flex-row sm:items-center sm:justify-between"
-                                  >
-
-                                    <div className="flex items-center gap-3">
-
-                                      <div
-                                        className={`
-                                          flex
-                                          h-9
-                                          w-9
-                                          items-center
-                                          justify-center
-                                          rounded-lg
-                                          ${
-                                            payment.status ===
-                                            "paid"
-                                              ? "bg-[#10b981]/10"
-                                              : "bg-[#242c27]"
-                                          }
-                                        `}
-                                      >
-
-                                        <PaymentStatusIcon
-                                          status={
-                                            payment.status
-                                          }
-                                        />
-
-                                      </div>
-
-                                      <div>
-
-                                        <p className="text-sm font-semibold">
-                                          {payment.label}
-                                        </p>
-
-                                        <p className="mt-1 text-[11px] text-[#71837a]">
-                                          {payment.date}
-                                        </p>
-
-                                      </div>
-
+                                          <div className="flex items-center justify-between gap-5 sm:justify-end">
+                                            <span className="text-sm font-bold font-mono text-[#dde4dd]">
+                                              {formatCurrency(item.amount)}
+                                            </span>
+                                            <span className="rounded-full border border-[#4edea3]/20 bg-[#10b981]/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#4edea3]">
+                                              PAID
+                                            </span>
+                                          </div>
+                                        </div>
+                                      ))}
                                     </div>
-
-                                    <div className="flex items-center justify-between gap-5 sm:justify-end">
-
-                                      <span className="text-sm font-bold">
-
-                                        {formatCurrency(
-                                          payment.amount
-                                        )}
-
-                                      </span>
-
-                                      <span
-                                        className={`
-                                          rounded-full
-                                          px-3
-                                          py-1.5
-                                          text-[9px]
-                                          font-bold
-                                          uppercase
-                                          tracking-wider
-                                          border
-                                          ${
-                                            payment.status ===
-                                            "paid"
-                                              ? "border-[#4edea3]/20 bg-[#10b981]/10 text-[#4edea3]"
-                                              : "border-[#3c4a42] bg-[#242c27] text-[#71837a]"
-                                          }
-                                        `}
-                                      >
-
-                                        {payment.status ===
-                                        "paid"
-                                          ? "Paid"
-                                          : "Scheduled"}
-
-                                      </span>
-
-                                    </div>
-
                                   </div>
+                                )}
 
-                                )
-                              )
+                                {/* UPCOMING PAYMENTS */}
+                                {upcomingSchedule.length > 0 && (
+                                  <div>
+                                    <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-[#4edea3]">
+                                      Upcoming Payments ({upcomingSchedule.length})
+                                    </p>
+                                    <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                                      {upcomingSchedule.map((item, idx) => (
+                                        <div
+                                          key={`upcoming-${item.installment_number}`}
+                                          className={`flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between ${
+                                            idx === 0
+                                              ? "border-[#4edea3]/30 bg-[#102018]"
+                                              : "border-[#242c27] bg-[#161d19]"
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-3">
+                                            <div
+                                              className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                                                idx === 0
+                                                  ? "bg-[#10b981]/20 border border-[#10b981]/40"
+                                                  : "bg-[#242c27]"
+                                              }`}
+                                            >
+                                              <Clock3
+                                                className={`h-4 w-4 ${
+                                                  idx === 0
+                                                    ? "text-[#4edea3]"
+                                                    : "text-[#71837a]"
+                                                }`}
+                                              />
+                                            </div>
+                                            <div>
+                                              <div className="flex items-center gap-2">
+                                                <p className="text-sm font-bold text-[#dde4dd]">
+                                                  EMI #{idx + 1}
+                                                </p>
+                                                {idx === 0 && (
+                                                  <span className="rounded bg-[#10b981]/20 px-1.5 py-0.5 text-[9px] font-bold uppercase text-[#4edea3]">
+                                                    Next Due
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <p className="mt-0.5 text-[11px] text-[#71837a]">
+                                                Due:{" "}
+                                                <strong className="text-[#4edea3]">
+                                                  {formatDateIN(item.due_date)}
+                                                </strong>
+                                              </p>
+                                            </div>
+                                          </div>
 
+                                          <div className="flex items-center justify-between gap-5 sm:justify-end">
+                                            <span className="text-sm font-bold font-mono text-[#dde4dd]">
+                                              {formatCurrency(item.amount)}
+                                            </span>
+                                            <span
+                                              className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                                                idx === 0
+                                                  ? "border-[#4edea3]/30 bg-[#10b981]/15 text-[#4edea3]"
+                                                  : "border-[#3c4a42] bg-[#242c27] text-[#819087]"
+                                              }`}
+                                            >
+                                              Upcoming
+                                            </span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             )}
 
+                            {/* SCHEDULE SUMMARY */}
+                            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                              <div className="rounded-xl border border-[#242c27] bg-[#161d19] p-4">
+                                <p className="text-[10px] uppercase tracking-wider text-[#52625a]">
+                                  Monthly EMI
+                                </p>
+                                <p className="mt-1 font-bold">
+                                  {formatCurrency(loan.emi)}
+                                </p>
+                              </div>
+
+                              <div className="rounded-xl border border-[#242c27] bg-[#161d19] p-4">
+                                <p className="text-[10px] uppercase tracking-wider text-[#52625a]">
+                                  Next Due Date
+                                </p>
+                                <p className="mt-1 font-bold text-[#4edea3]">
+                                  {loan.nextDueDate
+                                    ? formatDateIN(loan.nextDueDate)
+                                    : "Due date unavailable"}
+                                </p>
+                              </div>
+
+                              <div className="rounded-xl border border-[#242c27] bg-[#161d19] p-4">
+                                <p className="text-[10px] uppercase tracking-wider text-[#52625a]">
+                                  Remaining Balance
+                                </p>
+                                <p className="mt-1 font-bold">
+                                  {formatCurrency(
+                                    Math.max(0, loan.remainingAmount)
+                                  )}
+                                </p>
+                              </div>
+                            </div>
                           </div>
+                        );
+                      })()}
 
-                          {/* SCHEDULE SUMMARY */}
-
-                          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-
-                            <div className="rounded-xl border border-[#242c27] bg-[#161d19] p-4">
-
-                              <p className="text-[10px] uppercase tracking-wider text-[#52625a]">
-                                EMI
-                              </p>
-
-                              <p className="mt-1 font-bold">
-
-                                {formatCurrency(
-                                  loan.emi
-                                )}
-
-                              </p>
-
-                            </div>
-
-                            <div className="rounded-xl border border-[#242c27] bg-[#161d19] p-4">
-
-                              <p className="text-[10px] uppercase tracking-wider text-[#52625a]">
-                                Next Due
-                              </p>
-
-                              <p className="mt-1 font-bold">
-                                Next EMI
-                              </p>
-
-                            </div>
-
-                            <div className="rounded-xl border border-[#242c27] bg-[#161d19] p-4">
-
-                              <p className="text-[10px] uppercase tracking-wider text-[#52625a]">
-                                Remaining
-                              </p>
-
-                              <p className="mt-1 font-bold">
-
-                                {formatCurrency(
-                                  Math.max(
-                                    0,
-                                    loan.remainingAmount
-                                  )
-                                )}
-
-                              </p>
-
-                            </div>
-
-                          </div>
-
-                        </div>
-
-                      )}
 
                     </div>
 
@@ -1469,6 +1388,16 @@ const MyLoans: React.FC<MyLoansProps> = ({
         </div>
 
       </main>
+
+      <PaymentConfirmationModal
+        isOpen={isPaymentModalOpen}
+        loan={selectedLoanForPayment}
+        onClose={() => {
+          setIsPaymentModalOpen(false);
+          setSelectedLoanForPayment(null);
+        }}
+        onPaymentSuccess={handlePaymentSuccess}
+      />
 
     </div>
   );

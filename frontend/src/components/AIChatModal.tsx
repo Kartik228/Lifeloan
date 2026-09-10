@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Sparkles,
@@ -6,714 +6,344 @@ import {
   Loader2,
   Bot,
   User,
+  RotateCcw,
+  AlertCircle,
+  TrendingUp,
+  ShieldAlert,
+  HelpCircle,
 } from 'lucide-react';
 import { ChatMessage } from '../types';
+import { api, getStoredUser } from '../api';
 
 interface AIChatModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const API_URL = 'http://127.0.0.1:8000';
-
 export const AIChatModal: React.FC<AIChatModalProps> = ({
   isOpen,
   onClose,
 }) => {
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: 'msg-init',
+      sender: 'ai',
+      text:
+        'Greetings. I am LifeLoan AI, your financial intelligence advisor. I have access to your active borrowing facilities, credit metrics, and ML risk evaluation. How can I assist your loan planning today?',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    },
+  ]);
 
-  const [messages, setMessages] =
-    useState<ChatMessage[]>([
-      {
-        id: 'msg-1',
-        sender: 'ai',
-        text:
-          'Greetings. I am LifeLoan AI, your dedicated loan intelligence & financial advisor. I can now use your LifeLoan profile and loan information to give you personalized answers.',
-        timestamp:
-          new Date().toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-      },
-    ]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [lastFailedQuery, setLastFailedQuery] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
+  // ============================================================
+  // AUTO-SCROLL TO BOTTOM
+  // ============================================================
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
-  const [input, setInput] =
-    useState('');
+  useEffect(() => {
+    if (isOpen) {
+      scrollToBottom();
+    }
+  }, [messages, isOpen]);
 
-
-  const [loading, setLoading] =
-    useState(false);
-
+  // ============================================================
+  // PREFILL FROM LOCALSTORAGE ON OPEN
+  // ============================================================
+  useEffect(() => {
+    if (isOpen) {
+      const initialPrompt = localStorage.getItem('lifeloan_chat_initial_prompt');
+      if (initialPrompt) {
+        localStorage.removeItem('lifeloan_chat_initial_prompt');
+        handleSend(initialPrompt);
+      }
+    }
+  }, [isOpen]);
 
   if (!isOpen) {
     return null;
   }
 
-
   // ============================================================
-  // QUICK QUESTIONS
+  // 6 REQUIRED QUICK PROMPTS
   // ============================================================
-
   const quickQuestions = [
-    'Why was my loan approved or rejected?',
-    'What is my current loan risk?',
+    'Why was I approved?',
+    'Why is my risk high?',
     'How can I improve my borrowing capacity?',
-    'How are my current loans affecting me?',
+    'Can I afford another loan?',
+    'Explain my Digital Twin simulation',
+    'Help me reduce my debt',
   ];
 
-
   // ============================================================
-  // GET USER CONTEXT
+  // BUILD GROUNDED USER CONTEXT
   // ============================================================
-
   const getLifeLoanContext = async () => {
-
-  const userId =
-    localStorage.getItem("user_id");
-
-  // =====================================================
-  // LATEST ML PREDICTION
-  // =====================================================
-
-  let latestPrediction = null;
-
-  const storedPrediction =
-    localStorage.getItem(
-      "lifeloan_last_prediction"
-    );
-
-  if (storedPrediction) {
-
     try {
+      const [profile, loans, latestApp, digitalTwinScenario] = await Promise.all([
+        api.get('/financial-profile').catch(() => null),
+        api.get('/loans').catch(() => []),
+        api.get('/applications/latest').catch(() => null),
+        Promise.resolve().then(() => {
+          try {
+            const raw = localStorage.getItem('lifeloan_digital_twin_scenario');
+            return raw ? JSON.parse(raw) : null;
+          } catch {
+            return null;
+          }
+        }),
+      ]);
 
-      latestPrediction =
-        JSON.parse(
-          storedPrediction
-        );
-
-    } catch (error) {
-
-      console.warn(
-        "Could not read saved prediction:",
-        error
-      );
-
+      return {
+        user: getStoredUser(),
+        profile,
+        active_loans: loans,
+        latest_application: latestApp?.application,
+        latest_prediction: latestApp?.prediction,
+        digital_twin_scenario: digitalTwinScenario,
+      };
+    } catch (e) {
+      return { user: getStoredUser() };
     }
-
-  }
-
-
-  // =====================================================
-  // APPLICATION DATA
-  // =====================================================
-
-  let latestApplication = null;
-
-  const storedApplication =
-    localStorage.getItem(
-      "lifeloan_last_application"
-    );
-
-  if (storedApplication) {
-
-    try {
-
-      latestApplication =
-        JSON.parse(
-          storedApplication
-        );
-
-    } catch (error) {
-
-      console.warn(
-        "Could not read saved application:",
-        error
-      );
-
-    }
-
-  }
-
-
-  // =====================================================
-  // REAL LOANS FROM DATABASE
-  // =====================================================
-
-  let loans = [];
-
-  if (userId) {
-
-    try {
-
-      const response =
-        await fetch(
-          `${API_URL}/loans?user_id=${userId}`
-        );
-
-      if (response.ok) {
-
-        loans =
-          await response.json();
-
-      }
-
-    } catch (error) {
-
-      console.warn(
-        "Could not load LifeLoan loans:",
-        error
-      );
-
-    }
-
-  }
-
-
-  // =====================================================
-  // RETURN COMPLETE LIFELOAN CONTEXT
-  // =====================================================
-
-  return {
-
-    user_id:
-      userId
-        ? Number(userId)
-        : null,
-
-    latest_ml_prediction:
-      latestPrediction,
-
-    latest_application:
-      latestApplication,
-
-    active_loans:
-      loans.map(
-        (loan: any) => ({
-
-          id:
-            loan.id,
-
-          title:
-            loan.title,
-
-          loan_type:
-            loan.loan_type,
-
-          original_amount:
-            loan.amount,
-
-          remaining_amount:
-            loan.remaining_amount,
-
-          monthly_emi:
-            loan.emi,
-
-          interest_rate:
-            loan.interest_rate,
-
-          tenure_months:
-            loan.tenure_months,
-
-          repayment_progress:
-            loan.progress_percentage,
-
-          status:
-            loan.status,
-
-          created_at:
-            loan.created_at,
-
-        })
-      ),
-
   };
-
-};
 
   // ============================================================
   // SEND MESSAGE
   // ============================================================
-
-  const handleSend = async (
-    textToSend?: string
-  ) => {
-
-    const query =
-      textToSend ||
-      input;
-
-
-    if (
-      !query.trim() ||
-      loading
-    ) {
-
-      return;
-
-    }
-
-
-    // ----------------------------------------------------------
-    // USER MESSAGE
-    // ----------------------------------------------------------
+  const handleSend = async (textToSend?: string) => {
+    const query = (textToSend || input).trim();
+    if (!query || loading) return;
 
     const userMsg: ChatMessage = {
-
-      id:
-        `usr-${Date.now()}`,
-
-      sender:
-        'user',
-
-      text:
-        query,
-
-      timestamp:
-        new Date().toLocaleTimeString(
-          [],
-          {
-            hour: '2-digit',
-            minute: '2-digit',
-          }
-        ),
-
+      id: `usr-${Date.now()}`,
+      sender: 'user',
+      text: query,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
-
-    setMessages(
-      (prev) => [
-        ...prev,
-        userMsg,
-      ]
-    );
-
-
+    setMessages((prev) => [...prev, userMsg]);
     setInput('');
-
     setLoading(true);
-
+    setLastFailedQuery(null);
 
     try {
-
-      // ========================================================
-      // GET REAL LIFELOAN DATA
-      // ========================================================
-
-      const context =
-        await getLifeLoanContext();
-
-
-      console.log(
-        'LifeLoan AI context:',
-        context
-      );
-
-
-      // ========================================================
-      // SEND TO FASTAPI
-      // ========================================================
-
-      const response =
-        await fetch(
-          `${API_URL}/ai-chat`,
-          {
-            method: 'POST',
-
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-
-            body:
-              JSON.stringify({
-                prompt:
-                  query,
-
-                context:
-                  context,
-              }),
-          }
-        );
-
-
-      // ========================================================
-      // HANDLE BACKEND ERROR
-      // ========================================================
-
-      if (!response.ok) {
-
-        let errorMessage =
-          'Unable to contact LifeLoan AI.';
-
-
-        try {
-
-          const errorData =
-            await response.json();
-
-
-          if (
-            errorData.detail
-          ) {
-
-            errorMessage =
-              errorData.detail;
-
-          }
-
-        } catch {
-
-          // Ignore JSON parsing error
-
-        }
-
-
-        throw new Error(
-          errorMessage
-        );
-
-      }
-
-
-      // ========================================================
-      // READ GEMINI RESPONSE
-      // ========================================================
-
-      const data =
-        await response.json();
-
-
-      const aiReply =
-        data.reply ||
-        'I could not generate a response right now.';
-
+      const context = await getLifeLoanContext();
+      const response = await api.post<{ reply: string }>('/ai-chat', {
+        prompt: query,
+        context: context,
+      });
 
       const aiMsg: ChatMessage = {
-
-        id:
-          `ai-${Date.now()}`,
-
-        sender:
-          'ai',
-
-        text:
-          aiReply,
-
-        timestamp:
-          new Date().toLocaleTimeString(
-            [],
-            {
-              hour: '2-digit',
-              minute: '2-digit',
-            }
-          ),
-
+        id: `ai-${Date.now()}`,
+        sender: 'ai',
+        text: response.reply,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
-
-      setMessages(
-        (prev) => [
-          ...prev,
-          aiMsg,
-        ]
-      );
-
-
-    } catch (error) {
-
-      console.error(
-        'LifeLoan AI error:',
-        error
-      );
-
-
-      const errorText =
-        error instanceof Error
-          ? error.message
-          : 'Unable to connect to LifeLoan AI.';
-
-
-      setMessages(
-        (prev) => [
-          ...prev,
-
-          {
-            id:
-              `ai-error-${Date.now()}`,
-
-            sender:
-              'ai',
-
-            text:
-              `Sorry, I couldn't connect to LifeLoan AI.\n\n${errorText}`,
-
-            timestamp:
-              new Date().toLocaleTimeString(
-                [],
-                {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                }
-              ),
-          },
-
-        ]
-      );
-
-
+      setMessages((prev) => [...prev, aiMsg]);
+    } catch (err: any) {
+      console.error('AI Chat Error:', err);
+      setLastFailedQuery(query);
+      const errorMsg: ChatMessage = {
+        id: `err-${Date.now()}`,
+        sender: 'ai',
+        text:
+          err.message ||
+          'LifeLoan AI is temporarily unavailable or experiencing high load. Please click "Try Again" in a moment.',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prev) => [...prev, errorMsg]);
     } finally {
-
       setLoading(false);
-
     }
-
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const clearChat = () => {
+    setMessages([
+      {
+        id: 'msg-init',
+        sender: 'ai',
+        text:
+          'Chat history reset. How else can I assist your loan planning or financial decisions?',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+    ]);
+  };
 
   return (
-
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#09100c]/85 backdrop-blur-md">
-
-      <div className="relative flex flex-col h-[620px] w-full max-w-xl rounded-2xl glass-panel border border-[#3c4a42] shadow-2xl overflow-hidden">
-
-
-        {/* =====================================================
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+      <div className="relative flex flex-col h-[640px] w-full max-w-2xl rounded-3xl border border-[#242c27] bg-[#161d19] shadow-2xl overflow-hidden">
+        {/* ============================================================
             HEADER
-            ===================================================== */}
-
-        <div className="flex items-center justify-between border-b border-[#242c27] px-6 py-4 bg-[#161d19]">
-
-          <div className="flex items-center space-x-2.5">
-
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#10b981] text-[#003824]">
-
-              <Sparkles className="h-4 w-4" />
-
+        ============================================================ */}
+        <div className="flex items-center justify-between border-b border-[#242c27] px-6 py-4 bg-[#101713]/80">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#10b981]/10 border border-[#4edea3]/20">
+              <Bot className="h-5 w-5 text-[#4edea3]" />
             </div>
-
-
             <div>
-
-              <h3 className="font-serif text-lg font-bold text-[#dde4dd]">
-
-                LifeLoan AI Assistant
-
-              </h3>
-
-
-              <div className="flex items-center space-x-1 text-[10px] text-[#4edea3]">
-
-                <span className="h-1.5 w-1.5 rounded-full bg-[#10b981] animate-ping" />
-
-                <span>
-
-                  {loading
-                    ? 'Analyzing your LifeLoan profile...'
-                    : 'Online • Personalized AI'}
-
-                </span>
-
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-sm text-[#dde4dd]">LifeLoan AI Advisor</h3>
+                <span className="flex h-2 w-2 rounded-full bg-[#10b981] animate-pulse" />
               </div>
-
+              <p className="text-[10px] text-[#71837a]">
+                Grounded in your authentic database profile & SHAP XAI factors
+              </p>
             </div>
-
           </div>
 
-
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1 text-[#86948a] hover:bg-[#1a211d] hover:text-[#dde4dd]"
-          >
-
-            <X className="h-5 w-5" />
-
-          </button>
-
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={clearChat}
+              title="Clear conversation history"
+              className="rounded-lg p-2 text-[#71837a] hover:text-[#dde4dd] hover:bg-[#1f2722] transition"
+            >
+              <RotateCcw className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg p-2 text-[#71837a] hover:text-[#dde4dd] hover:bg-[#1f2722] transition"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
-
-        {/* =====================================================
-            MESSAGE LOG
-            ===================================================== */}
-
+        {/* ============================================================
+            MESSAGES AREA
+        ============================================================ */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-
-          {messages.map(
-            (msg) => (
-
+          {messages.map((msg) => {
+            const isUser = msg.sender === 'user';
+            return (
               <div
                 key={msg.id}
-                className={`flex items-start space-x-2.5 ${
-                  msg.sender === 'user'
-                    ? 'flex-row-reverse space-x-reverse'
-                    : ''
-                }`}
+                className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
               >
-
+                {!isUser && (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#10b981]/10 text-[#4edea3]">
+                    <Bot className="h-4 w-4" />
+                  </div>
+                )}
                 <div
-                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                    msg.sender === 'user'
-                      ? 'bg-[#1e1b4b] text-[#b9c8de]'
-                      : 'bg-[#10b981]/20 text-[#4edea3]'
-                  }`}
-                >
-
-                  {msg.sender === 'user' ? (
-
-                    <User className="h-3.5 w-3.5" />
-
-                  ) : (
-
-                    <Bot className="h-3.5 w-3.5" />
-
-                  )}
-
-                </div>
-
-
-                <div
-                  className={`max-w-[80%] rounded-2xl p-3.5 text-xs leading-relaxed ${
-                    msg.sender === 'user'
+                  className={`max-w-[80%] rounded-2xl px-4 py-3 text-xs leading-5 ${
+                    isUser
                       ? 'bg-[#10b981] text-[#003824] font-medium'
                       : 'bg-[#0e1511] text-[#dde4dd] border border-[#242c27]'
                   }`}
                 >
-
-                  <p className="whitespace-pre-wrap">
-
-                    {msg.text}
-
-                  </p>
-
-
+                  <p className="whitespace-pre-wrap">{msg.text}</p>
                   <span
-                    className={`block text-[9px] mt-1 text-right ${
-                      msg.sender === 'user'
-                        ? 'text-[#003824]/70'
-                        : 'text-[#86948a]'
+                    className={`mt-1.5 block text-[9px] ${
+                      isUser ? 'text-[#003824]/70' : 'text-[#52625a]'
                     }`}
                   >
-
                     {msg.timestamp}
-
                   </span>
-
                 </div>
-
+                {isUser && (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#242c27] text-[#9aa9a1]">
+                    <User className="h-4 w-4" />
+                  </div>
+                )}
               </div>
-
-            )
-          )}
-
+            );
+          })}
 
           {loading && (
-
-            <div className="flex items-center space-x-2 text-xs text-[#4edea3]">
-
-              <Loader2 className="h-4 w-4 animate-spin" />
-
-              <span>
-
-                LifeLoan AI is checking your financial profile...
-
-              </span>
-
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#10b981]/10 text-[#4edea3]">
+                <Bot className="h-4 w-4" />
+              </div>
+              <div className="rounded-2xl border border-[#242c27] bg-[#0e1511] px-4 py-3 text-xs text-[#71837a] flex items-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-[#4edea3]" />
+                <span>LifeLoan AI is analyzing your profile...</span>
+              </div>
             </div>
-
           )}
 
-        </div>
-
-
-        {/* =====================================================
-            QUICK QUESTIONS
-            ===================================================== */}
-
-        <div className="px-6 py-2 border-t border-[#242c27] bg-[#0e1511]/50 overflow-x-auto flex space-x-2">
-
-          {quickQuestions.map(
-            (question, index) => (
-
+          {lastFailedQuery && (
+            <div className="flex justify-center my-2">
               <button
-                key={index}
-                onClick={() =>
-                  handleSend(question)
-                }
-                disabled={loading}
-                className="shrink-0 rounded-full border border-[#2f3632] bg-[#161d19] px-3 py-1 text-[10px] text-[#bbcabf] hover:border-[#4edea3] hover:text-[#4edea3] transition-all disabled:opacity-40"
+                type="button"
+                onClick={() => handleSend(lastFailedQuery)}
+                className="flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-4 py-1.5 text-xs font-bold text-amber-400 hover:bg-amber-500/20 transition"
               >
-
-                {question}
-
+                <RotateCcw className="h-3.5 w-3.5" />
+                Retry Question
               </button>
-
-            )
+            </div>
           )}
 
+          <div ref={messagesEndRef} />
         </div>
 
+        {/* ============================================================
+            QUICK PROMPTS
+        ============================================================ */}
+        <div className="border-t border-[#242c27] bg-[#101713]/60 px-6 py-3">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-[#71837a] mb-2 flex items-center gap-1">
+            <Sparkles className="h-3 w-3 text-[#4edea3]" />
+            Quick Consultation Prompts
+          </p>
+          <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+            {quickQuestions.map((q, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => handleSend(q)}
+                disabled={loading}
+                className="rounded-lg border border-[#242c27] bg-[#161d19] px-2.5 py-1 text-[11px] text-[#9aa9a1] hover:border-[#4edea3]/40 hover:text-[#4edea3] transition disabled:opacity-50"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
 
-        {/* =====================================================
-            INPUT
-            ===================================================== */}
-
-        <div className="p-4 border-t border-[#242c27] bg-[#161d19]">
-
-          <form
-            onSubmit={(event) => {
-
-              event.preventDefault();
-
-              handleSend();
-
-            }}
-
-            className="flex items-center space-x-2"
-          >
-
-            <input
-              type="text"
+        {/* ============================================================
+            INPUT AREA
+        ============================================================ */}
+        <div className="border-t border-[#242c27] p-4 bg-[#161d19]">
+          <div className="relative flex items-center gap-2">
+            <textarea
+              rows={1}
               value={input}
-              onChange={(event) =>
-                setInput(
-                  event.target.value
-                )
-              }
-              disabled={loading}
-              placeholder="Ask LifeLoan AI about your loans or financial profile..."
-              className="flex-1 rounded-full bg-[#0e1511] border border-[#242c27] px-4 py-2.5 text-xs text-[#dde4dd] focus:border-[#4edea3] focus:outline-none disabled:opacity-50"
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask about your approval factors, EMI impact, or reduction strategies... (Enter to send)"
+              className="flex-1 resize-none rounded-2xl border border-[#242c27] bg-[#0e1511] px-4 py-3 text-xs text-[#dde4dd] placeholder-[#52625a] focus:border-[#4edea3] focus:outline-none"
             />
-
-
             <button
-              type="submit"
-              disabled={
-                loading ||
-                !input.trim()
-              }
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-[#10b981] text-[#003824] hover:bg-[#4edea3] disabled:opacity-40 transition-all"
+              type="button"
+              onClick={() => handleSend()}
+              disabled={loading || !input.trim()}
+              className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#10b981] text-[#003824] hover:bg-[#4edea3] transition disabled:opacity-40"
             >
-
-              {loading ? (
-
-                <Loader2 className="h-4 w-4 animate-spin" />
-
-              ) : (
-
-                <Send className="h-4 w-4" />
-
-              )}
-
+              <Send className="h-4 w-4" />
             </button>
-
-          </form>
-
+          </div>
+          <p className="text-[10px] text-[#52625a] mt-2 text-center">
+            Educational guidance powered by Gemini 3.5. LifeLoan predictions are algorithmic estimates and not loan approval guarantees.
+          </p>
         </div>
-
       </div>
-
     </div>
-
   );
-
 };
+export default AIChatModal;

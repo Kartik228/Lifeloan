@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { api } from "../api";
 import {
   ShieldCheck,
   Mail,
@@ -70,29 +71,16 @@ const RegisterPage: React.FC<RegisterPageProps> = ({
     setLoading(true);
 
     try {
-      const response = await fetch(
-        "http://127.0.0.1:8000/register",
+      await api.post(
+        "/register",
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            full_name: fullName,
-            email: email,
-            password: password,
-            phone: phone,
-          }),
-        }
+          full_name: fullName.trim(),
+          email: email.trim(),
+          password: password,
+          phone: phone.trim(),
+        },
+        { auth: false }
       );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.detail || "Unable to create your account."
-        );
-      }
 
       setSuccess(
         "Account created successfully! You can now sign in."
@@ -103,13 +91,11 @@ const RegisterPage: React.FC<RegisterPageProps> = ({
         onRegisterSuccess();
       }, 1200);
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Registration error:", err);
 
       setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to connect to LifeLoan server."
+        err.message || "Unable to create your account. Please try again."
       );
     } finally {
       setLoading(false);

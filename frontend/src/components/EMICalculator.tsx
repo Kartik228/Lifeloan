@@ -101,6 +101,47 @@ const EMICalculator: React.FC<EMICalculatorProps> = ({
   ]);
 
   // ============================================================
+  // AMORTIZATION SCHEDULE (REDUCING BALANCE)
+  // ============================================================
+
+  const [showFullSchedule, setShowFullSchedule] = useState(false);
+
+  const amortizationSchedule = useMemo(() => {
+    const principal = Number(loanAmount) || 0;
+    const annualRate = Number(interestRate) || 0;
+    const tenureValue = Number(tenure) || 0;
+    const months = tenureType === "years" ? tenureValue * 12 : tenureValue;
+
+    if (principal <= 0 || months <= 0) return [];
+
+    const monthlyRate = annualRate / 12 / 100;
+    const emi = calculation.emi;
+    let balance = principal;
+    const schedule = [];
+
+    const totalMonths = Math.min(months, 360);
+    for (let m = 1; m <= totalMonths; m++) {
+      const interestPayment = monthlyRate > 0 ? balance * monthlyRate : 0;
+      const principalPayment = Math.min(balance, emi - interestPayment);
+      const closingBalance = Math.max(0, balance - principalPayment);
+
+      schedule.push({
+        month: m,
+        openingBalance: Math.round(balance),
+        emi: Math.round(emi),
+        principalPaid: Math.round(principalPayment),
+        interestPaid: Math.round(interestPayment),
+        closingBalance: Math.round(closingBalance),
+      });
+
+      balance = closingBalance;
+      if (balance <= 0) break;
+    }
+
+    return schedule;
+  }, [loanAmount, interestRate, tenure, tenureType, calculation.emi]);
+
+  // ============================================================
   // FORMAT CURRENCY
   // ============================================================
 
@@ -681,6 +722,67 @@ const EMICalculator: React.FC<EMICalculatorProps> = ({
 
         </div>
 
+
+        {/* ====================================================
+            AMORTIZATION SCHEDULE TABLE
+        ==================================================== */}
+        {amortizationSchedule.length > 0 && (
+          <section className="mt-8 rounded-2xl border border-[#242c27] bg-[#161d19] p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+              <div>
+                <h3 className="font-bold text-lg text-[#dde4dd]">
+                  Amortization Schedule
+                </h3>
+                <p className="text-xs text-[#71837a] mt-1">
+                  Month-by-month breakdown of principal repayment, interest, and remaining balance.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowFullSchedule(!showFullSchedule)}
+                className="self-start sm:self-auto rounded-full border border-[#3c4a42] bg-[#101713] px-4 py-2 text-xs font-semibold text-[#4edea3] hover:bg-[#10b981]/10 transition"
+              >
+                {showFullSchedule ? "Show First 12 Months" : `View Full Schedule (${amortizationSchedule.length} Months)`}
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-[#242c27] text-[#71837a] uppercase tracking-wider text-[10px]">
+                    <th className="py-3 px-3">Month</th>
+                    <th className="py-3 px-3">EMI</th>
+                    <th className="py-3 px-3">Principal</th>
+                    <th className="py-3 px-3">Interest</th>
+                    <th className="py-3 px-3 text-right">Remaining Balance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1f2622]">
+                  {(showFullSchedule ? amortizationSchedule : amortizationSchedule.slice(0, 12)).map((row) => (
+                    <tr key={row.month} className="hover:bg-[#1f2722]/50 transition">
+                      <td className="py-3 px-3 font-mono font-semibold text-[#bbcabf]">
+                        Month {row.month}
+                      </td>
+                      <td className="py-3 px-3 font-mono font-medium text-[#dde4dd]">
+                        {formatCurrency(row.emi)}
+                      </td>
+                      <td className="py-3 px-3 font-mono text-[#4edea3]">
+                        {formatCurrency(row.principalPaid)}
+                      </td>
+                      <td className="py-3 px-3 font-mono text-orange-300">
+                        {formatCurrency(row.interestPaid)}
+                      </td>
+                      <td className="py-3 px-3 font-mono text-right font-semibold text-[#dde4dd]">
+                        {formatCurrency(row.closingBalance)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
         {/* ====================================================
             INFORMATION

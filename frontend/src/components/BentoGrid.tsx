@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Radio, ShieldCheck, Clock, Award, ChevronRight, Zap, RefreshCw, DollarSign, Calendar, AlertCircle, ArrowUpRight } from 'lucide-react';
+import { Radio, ShieldCheck, Clock, Award, ChevronRight, Zap, RefreshCw, Calendar, AlertCircle, ArrowUpRight } from 'lucide-react';
 import { LoanItem, RecoveryPlan } from '../types';
+import { formatINR } from '../api';
 
 interface BentoGridProps {
   loans: LoanItem[];
   recoveryPlan: RecoveryPlan;
   onOpenCheckEligibility: () => void;
   onOpenApply: () => void;
-  onPayEmi: (loanId: string) => void;
+  /** Navigate authenticated users to My Loans page, or open login for guests. */
+  onOpenLogin: () => void;
+  isLoggedIn: boolean;
+  onNavigateTo: (page: string) => void;
 }
 
 export const BentoGrid: React.FC<BentoGridProps> = ({
@@ -16,18 +20,20 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
   recoveryPlan,
   onOpenCheckEligibility,
   onOpenApply,
-  onPayEmi,
+  onOpenLogin,
+  isLoggedIn,
+  onNavigateTo,
 }) => {
   // Card 1: Interactive Loan Calculator state
-  const [calcAmount, setCalcAmount] = useState(450000);
-  const [calcTenure, setCalcTenure] = useState(15);
-  const [calcIncome, setCalcIncome] = useState(140000);
+  const [calcAmount, setCalcAmount] = useState(500000);
+  const [calcTenure, setCalcTenure] = useState(5);
+  const [calcIncome, setCalcIncome] = useState(600000);
 
   // Card 3: Loan Tracker Tab state
   const [trackerTab, setTrackerTab] = useState<'active' | 'upcoming' | 'completed' | 'history'>('active');
 
-  // Compute Card 1 live calculation
-  const monthlyRate = 0.058 / 12;
+  // Compute Card 1 live calculation (8.5% annual rate benchmark)
+  const monthlyRate = 0.085 / 12;
   const numPayments = calcTenure * 12;
   const calculatedEmi = Math.round(
     (calcAmount * monthlyRate * Math.pow(1 + monthlyRate, numPayments)) /
@@ -89,13 +95,13 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
               <div>
                 <div className="flex justify-between text-xs font-medium text-[#bbcabf] mb-1">
                   <span>Loan Amount</span>
-                  <span className="font-mono font-bold text-[#4edea3]">${calcAmount.toLocaleString()}</span>
+                  <span className="font-mono font-bold text-[#4edea3]">{formatINR(calcAmount)}</span>
                 </div>
                 <input
                   type="range"
                   min="50000"
-                  max="2000000"
-                  step="25000"
+                  max="5000000"
+                  step="50000"
                   value={calcAmount}
                   onChange={(e) => setCalcAmount(Number(e.target.value))}
                   className="w-full accent-[#10b981] bg-[#1a211d] h-1.5 rounded-lg cursor-pointer"
@@ -121,13 +127,13 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
                 <div>
                   <div className="flex justify-between text-xs font-medium text-[#bbcabf] mb-1">
                     <span>Annual Income</span>
-                    <span className="font-mono text-[#dde4dd]">${(calcIncome / 1000).toFixed(0)}k/yr</span>
+                    <span className="font-mono text-[#dde4dd]">{formatINR(calcIncome)}/yr</span>
                   </div>
                   <input
                     type="range"
-                    min="50000"
-                    max="500000"
-                    step="10000"
+                    min="100000"
+                    max="5000000"
+                    step="50000"
                     value={calcIncome}
                     onChange={(e) => setCalcIncome(Number(e.target.value))}
                     className="w-full accent-[#10b981] bg-[#1a211d] h-1.5 rounded-lg cursor-pointer"
@@ -143,7 +149,7 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
                 </div>
                 <div className="rounded-lg bg-[#161d19] p-2">
                   <div className="text-[10px] text-[#86948a] uppercase">Est. Monthly EMI</div>
-                  <div className="text-base font-bold text-[#dde4dd] font-mono">${calculatedEmi.toLocaleString()}</div>
+                  <div className="text-base font-bold text-[#dde4dd] font-mono">{formatINR(calculatedEmi)}</div>
                 </div>
                 <div className="rounded-lg bg-[#161d19] p-2">
                   <div className="text-[10px] text-[#86948a] uppercase">Est. DTI Ratio</div>
@@ -278,7 +284,7 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
                       </div>
                       <div className="text-right">
                         <div className="text-sm font-bold font-mono text-[#dde4dd]">
-                          ${loan.remainingAmount.toLocaleString()}
+                          {formatINR(loan.remainingAmount)}
                         </div>
                         <div className="text-[10px] text-[#86948a]">Remaining Balance</div>
                       </div>
@@ -287,15 +293,16 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
                     {/* EMI & Progress */}
                     <div className="mt-3 flex items-center justify-between border-t border-[#1a211d] pt-2 text-xs">
                       <div className="text-[#bbcabf]">
-                        Next EMI: <span className="font-mono text-[#4edea3] font-semibold">${loan.emi}/mo</span> ({loan.nextDueDate})
+                        Next EMI: <span className="font-mono text-[#4edea3] font-semibold">{formatINR(loan.emi)}/mo</span> ({loan.nextDueDate})
                       </div>
 
                       {loan.status === 'active' || loan.status === 'upcoming' ? (
                         <button
-                          onClick={() => onPayEmi(loan.id)}
+                          onClick={() => isLoggedIn ? onNavigateTo('loans') : onOpenLogin()}
+                          title={isLoggedIn ? 'Go to My Loans to record this payment safely' : 'Login to record EMI payments'}
                           className="rounded-full border border-[#4edea3]/40 bg-[#10b981]/10 px-3 py-1 text-[10px] font-bold text-[#4edea3] hover:bg-[#10b981] hover:text-[#003824] transition-all"
                         >
-                          PAY EMI
+                          {isLoggedIn ? 'Manage in My Loans →' : 'Login to Record EMI'}
                         </button>
                       ) : (
                         <span className="text-[10px] text-[#10b981] font-semibold">● {loan.status.toUpperCase()}</span>
@@ -378,10 +385,10 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
             <div className="mt-6 pt-3 border-t border-[#242c27] flex items-center justify-between text-xs text-[#86948a]">
               <span>Status: <strong className="text-[#4edea3]">{recoveryPlan.status}</strong></span>
               <button 
-                onClick={onOpenApply}
+                onClick={() => isLoggedIn ? onNavigateTo('recovery') : onOpenLogin()}
                 className="text-[#4edea3] font-semibold hover:underline"
               >
-                Generate Custom Plan →
+                {isLoggedIn ? 'Open Recovery Planner →' : 'Generate Custom Plan →'}
               </button>
             </div>
           </motion.div>

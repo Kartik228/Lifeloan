@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { api, setAuthSession } from "../api";
 import RegisterPage from "./RegisterPage";
 
 interface LoginProps {
@@ -52,57 +53,18 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setLoading(true);
 
     try {
-      const response = await fetch(
-        "http://127.0.0.1:8000/login",
+      const data = await api.post(
+        "/login",
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email: email.trim(),
-            password: password,
-          }),
-        }
+          email: email.trim(),
+          password: password,
+        },
+        { auth: false }
       );
 
-      const data = await response.json();
+      // Store JWT token and user session cleanly
+      setAuthSession(data.access_token, data.user || { id: data.user_id, email: email.trim() });
 
-      if (!response.ok) {
-        throw new Error(
-          data.detail || "Invalid email or password."
-        );
-      }
-
-      // Store JWT token
-    // ==========================================
-// STORE JWT TOKEN
-// ==========================================
-
-localStorage.setItem(
-  "lifeloan_token",
-  data.access_token
-);
-
-
-// ==========================================
-// STORE USER ID
-// ==========================================
-
-localStorage.setItem(
-  "user_id",
-  String(data.user_id)
-);
-
-
-// ==========================================
-// STORE LOGIN STATE
-// ==========================================
-
-localStorage.setItem(
-  "lifeloan_logged_in",
-  "true"
-);
       // Notify parent
       if (onLoginSuccess) {
         onLoginSuccess();
@@ -113,7 +75,7 @@ localStorage.setItem(
 
       setError(
         err.message ||
-          "Unable to connect to LifeLoan."
+          "Invalid email or password. Please check your credentials."
       );
     } finally {
       setLoading(false);

@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { api, formatINR } from "../api";
 import {
   ArrowLeft,
   User,
@@ -12,12 +13,17 @@ import {
   Loader2,
   ShieldCheck,
   TrendingUp,
-  Sparkles
+  Sparkles,
+  RotateCcw,
+  Target
 } from "lucide-react";
+import { FinancialProfile } from "../types";
 
 interface LoanApplicationProps {
   onBack: () => void;
   onOpenAIChat?: () => void;
+  /** Optional: navigate to another authenticated page (e.g. recovery, digital-twin) */
+  onNavigate?: (page: string) => void;
 }
 
 interface PredictionFactor {
@@ -38,10 +44,12 @@ interface PredictionResult {
 const LoanApplication: React.FC<LoanApplicationProps> = ({
   onBack,
   onOpenAIChat,
+  onNavigate,
 }) => {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [profileLoaded, setProfileLoaded] = useState(false);
 
   const [prediction, setPrediction] =
     useState<PredictionResult | null>(null);
@@ -67,6 +75,38 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
   });
 
   // ============================================================
+  // PRE-FILL FROM AUTHENTICATED FINANCIAL PROFILE
+  // ============================================================
+  useEffect(() => {
+    let mounted = true;
+    async function prefillFromProfile() {
+      try {
+        const profile = await api.get<FinancialProfile>('/financial-profile');
+        if (mounted && profile) {
+          setFormData((prev) => ({
+            ...prev,
+            // Financial step pre-fill
+            annualIncome: profile.annual_income > 0 ? String(profile.annual_income) : prev.annualIncome,
+            monthlyExpenses: profile.monthly_expenses > 0 ? String(profile.monthly_expenses) : prev.monthlyExpenses,
+            existingDebt: profile.existing_debt > 0 ? String(profile.existing_debt) : prev.existingDebt,
+            savings: profile.savings > 0 ? String(profile.savings) : prev.savings,
+            // Credit step pre-fill
+            creditScore: profile.credit_score > 0 ? String(profile.credit_score) : prev.creditScore,
+            // Employment status pre-fill
+            employment: profile.employment_status ? profile.employment_status : prev.employment,
+          }));
+          setProfileLoaded(true);
+        }
+      } catch {
+        // Profile not available — form stays blank, user fills manually
+        if (mounted) setProfileLoaded(false);
+      }
+    }
+    prefillFromProfile();
+    return () => { mounted = false; };
+  }, []);
+
+  // ============================================================
   // UPDATE FORM
   // ============================================================
 
@@ -81,13 +121,82 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
   };
 
   // ============================================================
+  // VALIDATION
+  // ============================================================
+
+  const validateStep = (currentStep: number): boolean => {
+    setError("");
+
+    if (currentStep === 1) {
+      // Step 1: Personal Information — Age, Dependents, Employment, Education
+      const age = Number(formData.age);
+      if (!formData.age || isNaN(age) || age < 18 || age > 80) {
+        setError("Please enter a valid applicant age between 18 and 80 years.");
+        return false;
+      }
+      if (!formData.employment) {
+        setError("Please select your current employment status.");
+        return false;
+      }
+      // NOTE: Annual Income is on Step 2 — do NOT validate it here.
+    } else if (currentStep === 2) {
+      // Step 2: Financial Information — Annual Income, Expenses, Debt, Savings
+      const income = Number(formData.annualIncome);
+      if (!formData.annualIncome || isNaN(income) || income <= 0) {
+        setError("Please enter a valid gross annual income greater than ₹0.");
+        return false;
+      }
+      const expenses = Number(formData.monthlyExpenses);
+      if (formData.monthlyExpenses === "" || isNaN(expenses) || expenses < 0) {
+        setError("Please enter valid monthly expenses (₹0 or greater).");
+        return false;
+      }
+      const debt = Number(formData.existingDebt);
+      if (isNaN(debt) || debt < 0) {
+        setError("Existing debt cannot be a negative value.");
+        return false;
+      }
+      const savings = Number(formData.savings);
+      if (isNaN(savings) || savings < 0) {
+        setError("Savings amount cannot be a negative value.");
+        return false;
+      }
+    } else if (currentStep === 3) {
+      const amount = Number(formData.loanAmount);
+      if (!formData.loanAmount || isNaN(amount) || amount <= 0) {
+        setError("Please enter a requested loan amount greater than ₹0.");
+        return false;
+      }
+      if (!formData.loanPurpose) {
+        setError("Please select your loan purpose.");
+        return false;
+      }
+      const term = Number(formData.loanTerm);
+      if (!formData.loanTerm || isNaN(term) || term <= 0) {
+        setError("Please select a valid loan tenure.");
+        return false;
+      }
+    } else if (currentStep === 4) {
+      const score = Number(formData.creditScore);
+      if (!formData.creditScore || isNaN(score) || score < 300 || score > 850) {
+        setError("Please enter a valid credit score between 300 and 850.");
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  // ============================================================
   // NAVIGATION
   // ============================================================
 
   const nextStep = () => {
-    if (step < 4) {
-      setStep(step + 1);
-      setError("");
+    if (validateStep(step)) {
+      if (step < 4) {
+        setStep(step + 1);
+        setError("");
+      }
     }
   };
 
@@ -364,24 +473,33 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
     setLoading(true);
 
     try {
-      const annualIncome =
-        Number(formData.annualIncome) || 0;
+      // --- Safe numeric conversion: strip commas/spaces, then parse ---
+      const annualIncome = parseFloat(
+        String(formData.annualIncome).replace(/[,\s₹]/g, "")
+      );
 
-      const monthlyExpenses =
-        Number(
-          formData.monthlyExpenses
-        ) || 0;
+      // Safety guard: annualIncome must be a positive number before we call /predict
+      if (!annualIncome || isNaN(annualIncome) || annualIncome <= 0) {
+        setError("Please enter a valid gross annual income greater than ₹0.");
+        setLoading(false);
+        return;
+      }
 
-      const existingDebt =
-        Number(
-          formData.existingDebt
-        ) || 0;
+      const monthlyExpenses = parseFloat(
+        String(formData.monthlyExpenses).replace(/[,\s₹]/g, "")
+      ) || 0;
 
-      const savings =
-        Number(formData.savings) || 0;
+      const existingDebt = parseFloat(
+        String(formData.existingDebt).replace(/[,\s₹]/g, "")
+      ) || 0;
 
-      const loanAmount =
-        Number(formData.loanAmount) || 0;
+      const savings = parseFloat(
+        String(formData.savings).replace(/[,\s₹]/g, "")
+      ) || 0;
+
+      const loanAmount = parseFloat(
+        String(formData.loanAmount).replace(/[,\s₹]/g, "")
+      ) || 0;
 
       const age =
         Number(formData.age) || 0;
@@ -595,43 +713,45 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
       );
 
       // ========================================================
-      // FASTAPI REQUEST
+      // FASTAPI REQUEST (AUTHENTICATED WITH BEARER TOKEN)
       // ========================================================
 
-      const response =
-        await fetch(
-          "http://127.0.0.1:8000/predict",
-          {
-            method: "POST",
+      const data = await api.post("/predict", payload);
 
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
+      // Cache latest prediction and application for AI Advisor / Recovery Planner context
+      try {
+        const appContext = {
+          ...formData,
+          // resolved numeric values
+          annualIncome,
+          monthlyExpenses,
+          existingDebt,
+          savings,
+          loanAmount,
+          creditScore,
+        };
+        localStorage.setItem("lifeloan_last_application", JSON.stringify(appContext));
+        localStorage.setItem("lifeloan_last_prediction", JSON.stringify(data));
 
-            body: JSON.stringify(
-              payload
-            ),
-          }
-        );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.detail ||
-            "Unable to process your application."
-        );
+        // Prime AI Advisor with assessment context so it responds immediately with relevance
+        const decision = data.decision || "Unknown";
+        const riskPct = data.default_probability != null
+          ? Math.round(data.default_probability * 100)
+          : null;
+        const aiPrompt =
+          `My LifeLoan assessment just completed. Decision: ${decision}. ` +
+          (riskPct != null ? `Default risk: ${riskPct}%. ` : "") +
+          `Requested: ₹${Math.round(loanAmount).toLocaleString("en-IN")} for ${formData.loanPurpose || "personal"} over ${loanTerm} months. ` +
+          `Annual income: ₹${Math.round(annualIncome).toLocaleString("en-IN")}. ` +
+          `Existing debt: ₹${Math.round(existingDebt).toLocaleString("en-IN")}. ` +
+          `Credit score: ${creditScore}. ` +
+          `Please explain this result and suggest how I can improve my position.`;
+        localStorage.setItem("lifeloan_chat_initial_prompt", aiPrompt);
+      } catch (e) {
+        console.warn("Could not save to localStorage cache:", e);
       }
 
-      console.log(
-        "ML prediction:",
-        data
-      );
-
       setPrediction(data);
-
       setStep(5);
 
     } catch (err: any) {
@@ -865,38 +985,45 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
 
             </div>
 
-            {/* PREDICTED AMOUNT */}
+            {/* LOAN AMOUNTS — REQUESTED vs AI RECOMMENDED */}
 
-            <div className="rounded-3xl border border-[#242c27] bg-[#161d19] p-7">
+            <div className="rounded-3xl border border-[#242c27] bg-[#161d19] p-7 space-y-5">
 
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#10b981]/10">
-
                 <TrendingUp className="h-5 w-5 text-[#4edea3]" />
-
               </div>
 
-              <p className="mt-6 text-xs uppercase tracking-wider text-[#71837a]">
-                Predicted Loan Amount
-              </p>
+              {/* Requested */}
+              <div className="rounded-xl border border-[#242c27] bg-[#101713] px-4 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-[#71837a]">
+                  You Requested
+                </p>
+                <p className="mt-1 text-xl font-bold text-[#dde4dd]">
+                  {formatINR(
+                    Number(
+                      String((() => {
+                        try {
+                          const app = JSON.parse(localStorage.getItem("lifeloan_last_application") || "{}");
+                          return app.loanAmount || 0;
+                        } catch { return 0; }
+                      })()).replace(/[,\s₹]/g, "") || "0"
+                    )
+                  )}
+                </p>
+              </div>
 
-              <p className="mt-2 text-3xl font-bold">
-
-                ₹
-                {Math.round(
-                  Number(
-                    prediction.predicted_loan_amount ||
-                      0
-                  )
-                ).toLocaleString(
-                  "en-IN"
-                )}
-
-              </p>
-
-              <p className="mt-4 text-xs leading-5 text-[#71837a]">
-                This value comes from the LifeLoan
-                loan amount prediction model.
-              </p>
+              {/* AI Recommended */}
+              <div className="rounded-xl border border-[#4edea3]/20 bg-[#10b981]/5 px-4 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-[#4edea3]/70">
+                  AI Recommended Amount
+                </p>
+                <p className="mt-1 text-xl font-bold text-[#4edea3]">
+                  {formatINR(Math.round(Number(prediction.predicted_loan_amount || 0)))}
+                </p>
+                <p className="mt-1 text-[10px] leading-4 text-[#71837a]">
+                  Based on LifeLoan's ML model — not a guaranteed lender offer.
+                </p>
+              </div>
 
             </div>
 
@@ -1131,18 +1258,74 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
       you can improve your borrowing position.
     </p>
 
-    <button
-      type="button"
-      onClick={() => onOpenAIChat?.()}
-      className="mt-5 flex items-center gap-2 rounded-xl bg-[#10b981] px-6 py-3 text-xs font-bold text-[#003824] transition hover:bg-[#4edea3]"
-    >
-      <Sparkles className="h-4 w-4" />
-      Ask LifeLoan AI
-    </button>
+    <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+      <button
+        type="button"
+        onClick={() => {
+          // AI context is already primed in localStorage — just open
+          onOpenAIChat?.();
+        }}
+        className="flex items-center gap-2 rounded-xl bg-[#10b981] px-6 py-3 text-xs font-bold text-[#003824] transition hover:bg-[#4edea3]"
+      >
+        <Sparkles className="h-4 w-4" />
+        Ask LifeLoan AI
+      </button>
+
+      {!isApproved && (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              // Go back to form step 3 (Loan Details) so user can reduce requested amount
+              setPrediction(null);
+              setStep(3);
+              setError("");
+            }}
+            className="flex items-center gap-2 rounded-xl border border-[#3c4a42] bg-[#161d19] px-6 py-3 text-xs font-semibold text-[#dde4dd] transition hover:border-[#4edea3]/40 hover:text-[#4edea3]"
+          >
+            <RotateCcw className="h-4 w-4" />
+            Try Lower Loan Amount
+          </button>
+
+          {onNavigate && (
+            <button
+              type="button"
+              onClick={() => onNavigate('recovery')}
+              className="flex items-center gap-2 rounded-xl border border-[#3c4a42] bg-[#161d19] px-6 py-3 text-xs font-semibold text-[#dde4dd] transition hover:border-[#4edea3]/40 hover:text-[#4edea3]"
+            >
+              <Target className="h-4 w-4" />
+              View Recovery Plan
+            </button>
+          )}
+        </>
+      )}
+    </div>
 
   </div>
 
 </section>
+
+          {/* REJECTION GUIDANCE */}
+
+          {!isApproved && (
+            <section className="mt-6 rounded-3xl border border-orange-400/20 bg-orange-400/5 p-7">
+              <h3 className="text-sm font-bold text-orange-300">Next Steps to Improve Your Position</h3>
+              <ul className="mt-4 space-y-2">
+                {[
+                  "Reduce your existing debt before reapplying",
+                  "Increase your savings to improve your debt-to-income ratio",
+                  "Build your credit score by maintaining on-time payments",
+                  "Consider requesting a lower loan amount",
+                  "Use the Financial Recovery Planner for a personalised action plan",
+                ].map((tip, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs text-orange-200/80">
+                    <span className="mt-0.5 shrink-0 text-orange-400">→</span>
+                    {tip}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {/* DISCLAIMER */}
 
@@ -1355,11 +1538,11 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
                 <div>
 
                   <h2 className="text-xl font-bold">
-                    Personal Information
+                    Step 1 of 4 — Personal Profile
                   </h2>
 
                   <p className="mt-1 text-xs text-[#71837a]">
-                    Tell us a little about yourself.
+                    Tell us about yourself so LifeLoan can personalise your assessment.
                   </p>
 
                 </div>
@@ -1540,11 +1723,13 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
                 <div>
 
                   <h2 className="text-xl font-bold">
-                    Financial Information
+                    Step 2 of 4 — Financial Profile
                   </h2>
 
                   <p className="mt-1 text-xs text-[#71837a]">
-                    Help us understand your current finances.
+                    {profileLoaded
+                      ? "Pre-filled from your LifeLoan profile — edit freely for this application."
+                      : "Help LifeLoan understand your current financial position."}
                   </p>
 
                 </div>
@@ -1678,11 +1863,11 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
                 <div>
 
                   <h2 className="text-xl font-bold">
-                    Loan Details
+                    Step 3 of 4 — Loan Request
                   </h2>
 
                   <p className="mt-1 text-xs text-[#71837a]">
-                    Tell us about the loan you're looking for.
+                    Tell us what you need — amount, purpose and preferred tenure.
                   </p>
 
                 </div>
@@ -1849,11 +2034,13 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
                 <div>
 
                   <h2 className="text-xl font-bold">
-                    Credit Information
+                    Step 4 of 4 — Credit Profile
                   </h2>
 
                   <p className="mt-1 text-xs text-[#71837a]">
-                    Information about your credit history.
+                    {profileLoaded
+                      ? "Credit score pre-filled from your LifeLoan profile — confirm before submitting."
+                      : "Complete your credit profile to finalise the assessment."}
                   </p>
 
                 </div>
@@ -2001,15 +2188,17 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
 
               </div>
 
-              <div className="mt-6 rounded-xl border border-[#242c27] bg-[#101713] p-4">
+              <div className="mt-6 rounded-xl border border-[#10b981]/20 bg-[#10b981]/5 p-4">
 
-                <p className="text-xs leading-5 text-[#71837a]">
-
-                  Your information will be evaluated
-                  using the LifeLoan machine learning
-                  system.
-
-                </p>
+                <div className="flex items-start gap-3">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#4edea3]" />
+                  <p className="text-xs leading-5 text-[#71837a]">
+                    <span className="font-semibold text-[#4edea3]">Ready for AI Assessment. </span>
+                    Clicking "Run AI Assessment" will send your data to LifeLoan's trained
+                    machine learning model. The model evaluates default risk and recommends
+                    an appropriate loan amount based on your financial profile.
+                  </p>
+                </div>
 
               </div>
 
@@ -2030,7 +2219,7 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
               <div>
 
                 <p className="text-xs font-semibold text-red-300">
-                  Assessment failed
+                  {step === 5 ? "Assessment failed" : "Please correct the following"}
                 </p>
 
                 <p className="mt-1 text-xs leading-5 text-red-300/70">
@@ -2081,23 +2270,21 @@ const LoanApplication: React.FC<LoanApplicationProps> = ({
               <button
                 type="submit"
                 disabled={loading}
-                className="flex items-center gap-2 rounded-xl bg-[#10b981] px-6 py-3 text-xs font-bold text-[#003824] transition hover:bg-[#4edea3] disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex items-center gap-2 rounded-xl bg-[#10b981] px-6 py-3 text-xs font-bold text-[#003824] transition hover:bg-[#4edea3] disabled:cursor-not-allowed disabled:opacity-60 shadow-lg shadow-[#10b981]/20"
               >
 
                 {loading ? (
 
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-
-                    Analyzing...
+                    Running AI Assessment...
                   </>
 
                 ) : (
 
                   <>
-                    Analyze Application
-
-                    <CheckCircle2 className="h-4 w-4" />
+                    <Sparkles className="h-4 w-4" />
+                    Run AI Assessment
                   </>
 
                 )}

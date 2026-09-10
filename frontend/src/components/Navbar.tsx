@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 import {
   ShieldCheck,
@@ -7,146 +7,326 @@ import {
   Menu,
   X,
   LogOut,
+  Briefcase,
+  Wallet,
+  CreditCard,
+  TrendingUp,
+  ChevronDown,
+  FileText,
+  Loader2,
 } from 'lucide-react';
 
+import { api, formatINR, getStoredUser } from '../api';
+import { FinancialProfile } from '../types';
+
+
+// ============================================================
+// PROPS
+// ============================================================
 
 interface NavbarProps {
-
   onOpenCheckEligibility: () => void;
-
   onOpenApply: () => void;
-
   onOpenAIChat: () => void;
-
   onOpenLogin: () => void;
-
   onLogout: () => void;
-
   isLoggedIn: boolean;
-
   activeSection: string;
-
-  setActiveSection: (
-    section: string
-  ) => void;
-
+  setActiveSection: (section: string) => void;
+  onOpenComparison?: () => void;
+  /** Navigate to an authenticated page (loans, apply, dashboard, etc.) */
+  onNavigateTo?: (page: string) => void;
 }
 
 
-export const Navbar: React.FC<NavbarProps> = ({
+// ============================================================
+// PROFILE DROPDOWN
+// ============================================================
 
-  onOpenCheckEligibility,
+interface ProfileDropdownProps {
+  onLogout: () => void;
+  onNavigateTo?: (page: string) => void;
+  onClose: () => void;
+}
 
-  onOpenApply,
-
-  onOpenAIChat,
-
-  onOpenLogin,
-
+const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
   onLogout,
-
-  isLoggedIn,
-
-  activeSection,
-
-  setActiveSection,
-
+  onNavigateTo,
+  onClose,
 }) => {
+  const storedUser = getStoredUser();
+  const [profile, setProfile] = useState<FinancialProfile | null>(null);
+  const [user, setUser] = useState<{ id?: number; full_name?: string; email?: string; phone?: string } | null>(storedUser);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    async function load() {
+      try {
+        const [meData, profileData] = await Promise.all([
+          api.get('/me').catch(() => null),
+          api.get<FinancialProfile>('/financial-profile').catch(() => null),
+        ]);
+        if (mounted) {
+          if (meData) setUser(meData);
+          if (profileData) setProfile(profileData);
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+    load();
+    return () => { mounted = false; };
+  }, []);
+
+  const navigate = (page: string) => {
+    onClose();
+    onNavigateTo?.(page);
+  };
+
+  const handleLogout = () => {
+    onClose();
+    onLogout();
+  };
+
+  // ── helpers ──────────────────────────────────────────────
+  const initials = user?.full_name
+    ? user.full_name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()
+    : 'U';
+
+  const employmentLabel = profile?.employment_status
+    ? profile.employment_status.charAt(0).toUpperCase() + profile.employment_status.slice(1).replace(/-/g, ' ')
+    : '—';
+
+  return (
+    <div
+      className="absolute right-0 top-full mt-3 w-80 rounded-2xl border border-[#2d3d33] bg-[#111a14] shadow-2xl shadow-black/60 z-50 overflow-hidden"
+      id="profile-dropdown"
+      role="dialog"
+      aria-label="Account profile"
+    >
+      {/* ── Header ─────────────────────────────────────────── */}
+      <div className="bg-gradient-to-br from-[#10b981]/15 to-[#047857]/10 px-5 py-4 border-b border-[#242c27]">
+        <div className="flex items-center gap-3">
+          {/* Avatar */}
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#10b981] to-[#047857] text-[#003824] text-sm font-bold">
+            {initials}
+          </div>
+          <div className="min-w-0">
+            {loading ? (
+              <div className="flex items-center gap-2 text-xs text-[#71837a]">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Loading…
+              </div>
+            ) : (
+              <>
+                <p className="text-sm font-bold text-[#dde4dd] truncate">{user?.full_name || '—'}</p>
+                <p className="text-[11px] text-[#71837a] truncate">{user?.email || '—'}</p>
+                {user?.phone && (
+                  <p className="text-[10px] text-[#4e5e52] truncate">{user.phone}</p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Financial snapshot ────────────────────────────── */}
+      {!loading && profile && (
+        <div className="px-5 py-3 border-b border-[#242c27]">
+          <p className="mb-2.5 text-[10px] font-semibold tracking-widest text-[#4e5e52] uppercase">
+            Financial Profile
+          </p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+            <ProfileStat
+              icon={<Wallet className="h-3 w-3 text-[#4edea3]" />}
+              label="Annual Income"
+              value={formatINR(profile.annual_income)}
+            />
+            <ProfileStat
+              icon={<TrendingUp className="h-3 w-3 text-[#4edea3]" />}
+              label="Credit Score"
+              value={String(profile.credit_score)}
+            />
+            <ProfileStat
+              icon={<Briefcase className="h-3 w-3 text-[#4edea3]" />}
+              label="Employment"
+              value={employmentLabel}
+            />
+            <ProfileStat
+              icon={<CreditCard className="h-3 w-3 text-[#4edea3]" />}
+              label="Existing Debt"
+              value={formatINR(profile.existing_debt)}
+            />
+            <ProfileStat
+              icon={<Wallet className="h-3 w-3 text-[#71837a]" />}
+              label="Monthly Expenses"
+              value={formatINR(profile.monthly_expenses)}
+            />
+            <ProfileStat
+              icon={<TrendingUp className="h-3 w-3 text-[#71837a]" />}
+              label="Savings"
+              value={formatINR(profile.savings)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Actions ───────────────────────────────────────── */}
+      <div className="p-2">
+        <DropdownItem
+          icon={<User className="h-4 w-4" />}
+          label="Dashboard"
+          onClick={() => navigate('dashboard')}
+          id="profile-dropdown-dashboard"
+        />
+        <DropdownItem
+          icon={<FileText className="h-4 w-4" />}
+          label="My Loans"
+          onClick={() => navigate('loans')}
+          id="profile-dropdown-loans"
+        />
+        <DropdownItem
+          icon={<Sparkles className="h-4 w-4" />}
+          label="Apply for Loan"
+          onClick={() => navigate('apply')}
+          id="profile-dropdown-apply"
+        />
+        <div className="my-1 border-t border-[#242c27]" />
+        <DropdownItem
+          icon={<LogOut className="h-4 w-4" />}
+          label="Logout"
+          onClick={handleLogout}
+          variant="danger"
+          id="profile-dropdown-logout"
+        />
+      </div>
+    </div>
+  );
+};
 
 
-  const [
-    mobileMenuOpen,
-    setMobileMenuOpen,
-  ] = useState(false);
+// ── Small stat cell ───────────────────────────────────────
+const ProfileStat: React.FC<{ icon: React.ReactNode; label: string; value: string }> = ({
+  icon, label, value,
+}) => (
+  <div className="flex items-start gap-1.5">
+    <span className="mt-0.5">{icon}</span>
+    <div>
+      <p className="text-[9px] text-[#4e5e52] leading-none">{label}</p>
+      <p className="text-[11px] font-semibold text-[#dde4dd] leading-tight truncate max-w-[95px]">{value}</p>
+    </div>
+  </div>
+);
 
+
+// ── Dropdown action item ──────────────────────────────────
+const DropdownItem: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  variant?: 'default' | 'danger';
+  id?: string;
+}> = ({ icon, label, onClick, variant = 'default', id }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    id={id}
+    className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-medium transition-all duration-150 ${
+      variant === 'danger'
+        ? 'text-red-300 hover:bg-red-500/10 hover:text-red-200'
+        : 'text-[#bbcabf] hover:bg-[#1a2c1f] hover:text-[#dde4dd]'
+    }`}
+  >
+    {icon}
+    {label}
+  </button>
+);
+
+
+// ============================================================
+// NAVBAR
+// ============================================================
+
+export const Navbar: React.FC<NavbarProps> = ({
+  onOpenCheckEligibility,
+  onOpenApply,
+  onOpenAIChat,
+  onOpenLogin,
+  onLogout,
+  isLoggedIn,
+  activeSection,
+  setActiveSection,
+  onOpenComparison,
+  onNavigateTo,
+}) => {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  // ── Close dropdown when clicking outside ─────────────────
+  useEffect(() => {
+    if (!profileOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [profileOpen]);
+
+  // ── Close dropdown on Escape ──────────────────────────────
+  useEffect(() => {
+    if (!profileOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setProfileOpen(false);
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [profileOpen]);
 
   // =====================================================
   // NAVIGATION ITEMS
   // =====================================================
-
   const navItems = [
-
-    {
-      id: 'home',
-      label: 'Home',
-    },
-
-    {
-      id: 'features',
-      label: 'Features',
-    },
-
-    {
-      id: 'digital-twin',
-      label: 'Digital Twin',
-    },
-
-    {
-      id: 'how-it-works',
-      label: 'How it Works',
-    },
-
-    {
-      id: 'insights',
-      label: 'Insights',
-    },
-
-    {
-      id: 'faq',
-      label: 'FAQ',
-    },
-
+    { id: 'home', label: 'Home' },
+    { id: 'features', label: 'Features' },
+    { id: 'digital-twin', label: 'Digital Twin' },
+    { id: 'comparison', label: 'Compare Banks' },
+    { id: 'how-it-works', label: 'How it Works' },
+    { id: 'faq', label: 'FAQ' },
   ];
-
 
   // =====================================================
   // NAVIGATION
   // =====================================================
-
-  const handleNavClick = (
-    id: string
-  ) => {
-
+  const handleNavClick = (id: string) => {
     setActiveSection(id);
-
     setMobileMenuOpen(false);
+    setProfileOpen(false);
 
-    const element =
-      document.getElementById(id);
+    // Authenticated users get routed to their full pages for digital twin & comparison
+    if (isLoggedIn && onNavigateTo) {
+      if (id === 'digital-twin') {
+        onNavigateTo('digital-twin');
+        return;
+      }
+      if (id === 'comparison') {
+        onNavigateTo('comparison');
+        return;
+      }
+    }
 
+    if (id === 'comparison' && onOpenComparison) {
+      onOpenComparison();
+      return;
+    }
+
+    const element = document.getElementById(id);
     if (element) {
-
-      element.scrollIntoView({
-        behavior: 'smooth',
-      });
-
+      element.scrollIntoView({ behavior: 'smooth' });
     }
-
-  };
-
-
-  // =====================================================
-  // ACCOUNT BUTTON
-  // =====================================================
-
-  const handleAccountClick = () => {
-
-    setMobileMenuOpen(false);
-
-    if (isLoggedIn) {
-
-      // Already logged in
-      // Open profile / application area
-      onOpenApply();
-
-    } else {
-
-      // Not logged in
-      // Show login page
-      onOpenLogin();
-
-    }
-
   };
 
 
@@ -155,11 +335,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   // =====================================================
 
   const handleLogoutClick = () => {
-
     setMobileMenuOpen(false);
-
+    setProfileOpen(false);
     onLogout();
-
   };
 
 
@@ -198,9 +376,14 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <div
 
-          onClick={() =>
-            handleNavClick('home')
-          }
+          onClick={() => {
+            if (isLoggedIn && onNavigateTo) {
+              // Authenticated: navigate to landing page
+              onNavigateTo('landing');
+            } else {
+              handleNavClick('home');
+            }
+          }}
 
           className="
             flex
@@ -399,52 +582,84 @@ export const Navbar: React.FC<NavbarProps> = ({
 
 
           {/* =================================================
-              ACCOUNT
+              ACCOUNT / PROFILE — authenticated
               ================================================= */}
 
-          <button
+          {isLoggedIn ? (
 
-            onClick={
-              handleAccountClick
-            }
+            /* ── Profile trigger + dropdown ── */
+            <div className="relative" ref={profileRef}>
+              <button
+                type="button"
+                onClick={() => setProfileOpen((prev) => !prev)}
+                aria-haspopup="dialog"
+                aria-expanded={profileOpen}
+                title="Account & Profile"
+                id="user-profile-button"
+                className={`
+                  flex
+                  h-9
+                  items-center
+                  gap-1.5
+                  rounded-full
+                  border
+                  px-2.5
+                  text-xs
+                  font-semibold
+                  transition-all
+                  duration-200
+                  ${profileOpen
+                    ? 'border-[#4edea3] bg-[#10b981]/15 text-[#4edea3] shadow-[0_0_12px_rgba(78,222,163,0.25)]'
+                    : 'border-[#3c4a42] bg-[#1a211d] text-[#dde4dd] hover:border-[#4edea3] hover:text-[#4edea3]'
+                  }
+                `}
+              >
+                <User className="h-4 w-4" />
+                <ChevronDown
+                  className={`h-3 w-3 transition-transform duration-200 ${profileOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
 
-            title={
-              isLoggedIn
-                ? 'Open LifeLoan profile'
-                : 'Sign in to LifeLoan'
-            }
+              {profileOpen && (
+                <ProfileDropdown
+                  onLogout={onLogout}
+                  onNavigateTo={onNavigateTo}
+                  onClose={() => setProfileOpen(false)}
+                />
+              )}
+            </div>
 
-            className="
-              flex
-              h-9
-              w-9
-              items-center
-              justify-center
-              rounded-full
-              border
-              border-[#3c4a42]
-              bg-[#1a211d]
-              text-[#dde4dd]
-              transition-all
-              hover:border-[#4edea3]
-              hover:text-[#4edea3]
-            "
+          ) : (
 
-            id="user-profile-button"
-          >
-
-            <User
+            /* ── Sign in button ── */
+            <button
+              onClick={onOpenLogin}
+              title="Sign in to LifeLoan"
               className="
-                h-4
-                w-4
+                flex
+                h-9
+                w-9
+                items-center
+                justify-center
+                rounded-full
+                border
+                border-[#3c4a42]
+                bg-[#1a211d]
+                text-[#dde4dd]
+                transition-all
+                hover:border-[#4edea3]
+                hover:text-[#4edea3]
               "
-            />
+              id="user-profile-button"
+            >
+              <User className="h-4 w-4" />
+            </button>
 
-          </button>
+          )}
 
 
           {/* =================================================
-              LOGOUT
+              LOGOUT (only when logged in, desktop)
               ================================================= */}
 
           {isLoggedIn && (
@@ -689,7 +904,58 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
 
-            {/* Account */}
+            {/* Account — authenticated mobile items */}
+
+            {isLoggedIn && (
+              <>
+                <hr className="my-1 border-[#242c27]" />
+
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onNavigateTo?.('dashboard');
+                  }}
+                  className="
+                    w-full
+                    rounded-full
+                    border
+                    border-[#4edea3]/40
+                    px-4
+                    py-2
+                    text-center
+                    text-sm
+                    font-semibold
+                    text-[#4edea3]
+                  "
+                >
+                  Dashboard
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onNavigateTo?.('loans');
+                  }}
+                  className="
+                    w-full
+                    rounded-full
+                    border
+                    border-[#3c4a42]
+                    px-4
+                    py-2
+                    text-center
+                    text-sm
+                    font-semibold
+                    text-[#dde4dd]
+                  "
+                >
+                  My Loans
+                </button>
+              </>
+            )}
+
+
+            {/* Account — unauthenticated */}
 
             {!isLoggedIn && (
 

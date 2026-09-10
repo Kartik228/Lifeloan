@@ -11,10 +11,13 @@ import { Footer } from "./components/Footer";
 import MyLoans from "./components/MyLoans";
 import LoanApplication from "./components/LoanApplication";
 import EMICalculator from "./components/EMICalculator";
+import LoanComparison from "./components/LoanComparison";
 
 import { EligibilityModal } from "./components/EligibilityModal";
 import { ApplicationModal } from "./components/ApplicationModal";
 import { AIChatModal } from "./components/AIChatModal";
+import { PrivacyPolicy } from "./components/PrivacyPolicy";
+import { TermsAndConditions } from "./components/TermsAndConditions";
 
 import {
   INITIAL_LOANS,
@@ -22,68 +25,60 @@ import {
 } from "./data/mockData";
 
 import { LoanItem } from "./types";
-
 import { CheckCircle2 } from "lucide-react";
-
 import Login from "./components/LoginPage";
-
+import { clearAuthSession } from "./api";
 
 export default function App() {
-
   // =====================================================
   // PAGE / LOGIN STATE
   // =====================================================
+  const [currentPage, setCurrentPage] = useState("landing");
+  const [showLogin, setShowLogin] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(
+    localStorage.getItem("lifeloan_logged_in") === "true"
+  );
 
-  const [currentPage, setCurrentPage] =
-    useState("landing");
-
-  const [showLogin, setShowLogin] =
-    useState(false);
-
-  const [isLoggedIn, setIsLoggedIn] =
-    useState(
-      localStorage.getItem(
-        "lifeloan_logged_in"
-      ) === "true"
-    );
-
-
-  // =====================================================
-  // BROWSER BACK BUTTON
-  // =====================================================
-
-  useEffect(() => {
-
-    const handlePopState = () => {
-
-      setShowLogin(false);
-
+  const navigateTo = (page: string) => {
+    if (page === "faq") {
       setCurrentPage("landing");
+      setTimeout(() => {
+        const el = document.getElementById("faq");
+        if (el) el.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+      return;
+    }
+    setCurrentPage(page);
+    try {
+      window.history.pushState({ page }, "", "");
+    } catch {}
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
-      window.scrollTo({
-        top: 0,
-        behavior: "smooth",
-      });
-
+  // =====================================================
+  // BROWSER BACK BUTTON & UNAUTHORIZED LISTENER
+  // =====================================================
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      const target = event.state?.page || (isLoggedIn ? "dashboard" : "landing");
+      setShowLogin(false);
+      setCurrentPage(target);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
+    const handleUnauthorized = () => {
+      setIsLoggedIn(false);
+      setCurrentPage("landing");
+    };
 
-    window.addEventListener(
-      "popstate",
-      handlePopState
-    );
-
+    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("lifeloan-unauthorized", handleUnauthorized);
 
     return () => {
-
-      window.removeEventListener(
-        "popstate",
-        handlePopState
-      );
-
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("lifeloan-unauthorized", handleUnauthorized);
     };
-
-  }, []);
+  }, [isLoggedIn]);
 
 
   // =====================================================
@@ -266,13 +261,9 @@ export default function App() {
   // =====================================================
 
   const handleApplyLoan = () => {
-
     requireLogin(() => {
-
-      setIsApplyOpen(true);
-
+      navigateTo("apply");
     });
-
   };
 
 
@@ -282,13 +273,8 @@ export default function App() {
 
   const handleLogout = () => {
 
-    localStorage.removeItem(
-      "lifeloan_token"
-    );
-
-    localStorage.removeItem(
-      "lifeloan_logged_in"
-    );
+    // Clear all auth session data (token, user, lifeloan_logged_in, user_id)
+    clearAuthSession();
 
 
     setIsLoggedIn(false);
@@ -329,87 +315,6 @@ export default function App() {
 
   };
 
-
-  // =====================================================
-  // PAY EMI
-  // =====================================================
-
-  const handlePayEmi = (
-    loanId: string
-  ) => {
-
-    setLoans(
-      (prevLoans) =>
-
-        prevLoans.map(
-          (loan) => {
-
-            if (
-              loan.id ===
-              loanId
-            ) {
-
-              const newRemaining =
-                Math.max(
-                  0,
-                  loan.remainingAmount -
-                    loan.emi
-                );
-
-
-              const newProgress =
-                Math.round(
-                  (
-                    (loan.amount -
-                      newRemaining) /
-                    loan.amount
-                  ) * 100
-                );
-
-
-              return {
-
-                ...loan,
-
-                remainingAmount:
-                  newRemaining,
-
-                progressPercentage:
-                  newProgress,
-
-                status:
-                  newRemaining ===
-                  0
-                    ? "completed"
-                    : loan.status,
-
-              };
-
-            }
-
-
-            return loan;
-
-          }
-        )
-    );
-
-
-    const paidLoan =
-      loans.find(
-        (l) =>
-          l.id ===
-          loanId
-      );
-
-
-    showToast(
-      `Successfully processed ₹${paidLoan?.emi.toLocaleString(
-        "en-IN"
-      )} EMI payment for ${paidLoan?.title}.`
-    );
-
-  };
 
 
   // =====================================================
@@ -472,283 +377,147 @@ export default function App() {
       <>
 
         <Dashboard
-
-          onLogout={
-            handleLogout
-          }
-
-          onNavigate={
-            (page) => {
-
-              // =================================================
-              // MY LOANS
-              // =================================================
-
-              if (
-                page ===
-                "loans"
-              ) {
-
-                
-                setCurrentPage(
-                  "loans"
-                );
-
-                return;
-
-              }
-
-
-              // =================================================
-              // APPLY
-              // =================================================
-
-              if (
-                page ===
-                "apply"
-              ) {
-
-                setCurrentPage(
-                  "apply"
-                );
-
-                return;
-
-              }
-
-
-              // =================================================
-              // EMI
-              // =================================================
-
-              if (
-                page ===
-                "emi"
-              ) {
-
-                setCurrentPage(
-                  "emi"
-                );
-
-                return;
-
-              }
-
-
-              // =================================================
-              // AI ADVISOR
-              // =================================================
-
-              if (
-                page ===
-                "advisor"
-              ) {
-
-                setIsAIChatOpen(
-                  true
-                );
-
-                return;
-
-              }
-
-
-              // =================================================
-              // FINANCIAL RECOVERY PLANNER
-              // =================================================
-
-              if (
-                page ===
-                "recovery"
-              ) {
-
-                setCurrentPage(
-                  "recovery"
-                );
-
-                return;
-
-              }
-
-
-              console.log(
-                "Navigate to:",
-                page
-              );
-
+          onLogout={handleLogout}
+          onOpenAIChat={() => setIsAIChatOpen(true)}
+          onNavigate={(page) => {
+            if (page === "advisor" || page === "ai-chat") {
+              setIsAIChatOpen(true);
+              return;
             }
-          }
-
+            navigateTo(page);
+          }}
         />
-
-
-        {/* =================================================
-            AI CHAT ON DASHBOARD
-            ================================================= */}
 
         <AIChatModal
-
-          isOpen={
-            isAIChatOpen
-          }
-
-          onClose={() =>
-            setIsAIChatOpen(
-              false
-            )
-          }
-
+          isOpen={isAIChatOpen}
+          onClose={() => setIsAIChatOpen(false)}
         />
-
       </>
-
     );
-
   }
-
 
   // =====================================================
   // MY LOANS
   // =====================================================
-
-  if (
-    isLoggedIn &&
-    currentPage ===
-      "loans"
-  ) {
-
+  if (isLoggedIn && currentPage === "loans") {
     return (
-
       <MyLoans
-
-        onBack={() => {
-
-          setCurrentPage(
-            "dashboard"
-          );
-
-        }}
-
+        onBack={() => navigateTo("dashboard")}
+        onApplyLoan={() => navigateTo("apply")}
       />
-
     );
-
   }
-
 
   // =====================================================
   // LOAN APPLICATION
   // =====================================================
-
-  if (
-    isLoggedIn &&
-    currentPage ===
-      "apply"
-  ) {
-
+  if (isLoggedIn && currentPage === "apply") {
     return (
-
       <>
-
         <LoanApplication
-
-          onBack={() => {
-
-            setCurrentPage(
-              "dashboard"
-            );
-
-          }}
-
-          onOpenAIChat={() =>
-            setIsAIChatOpen(
-              true
-            )
-          }
-
+          onBack={() => navigateTo("dashboard")}
+          onOpenAIChat={() => setIsAIChatOpen(true)}
+          onNavigate={navigateTo}
         />
-
-
-        {/* =================================================
-            AI CHAT FROM LOAN ASSESSMENT
-            ================================================= */}
-
         <AIChatModal
-
-          isOpen={
-            isAIChatOpen
-          }
-
-          onClose={() =>
-            setIsAIChatOpen(
-              false
-            )
-          }
-
+          isOpen={isAIChatOpen}
+          onClose={() => setIsAIChatOpen(false)}
         />
-
       </>
-
     );
-
   }
-
 
   // =====================================================
   // FINANCIAL RECOVERY PLANNER
   // =====================================================
-
-  if (
-    isLoggedIn &&
-    currentPage ===
-      "recovery"
-  ) {
-
+  if (isLoggedIn && currentPage === "recovery") {
     return (
-
-      <RecoveryPlanner
-
-        onBack={() => {
-
-          setCurrentPage(
-            "dashboard"
-          );
-
-        }}
-
-      />
-
+      <>
+        <RecoveryPlanner
+          onBack={() => navigateTo("dashboard")}
+          onOpenAIChat={() => setIsAIChatOpen(true)}
+        />
+        <AIChatModal
+          isOpen={isAIChatOpen}
+          onClose={() => setIsAIChatOpen(false)}
+        />
+      </>
     );
-
   }
 
+  // =====================================================
+  // FINANCIAL DIGITAL TWIN
+  // =====================================================
+  if (isLoggedIn && currentPage === "digital-twin") {
+    return (
+      <>
+        <DigitalTwin
+          onBack={() => navigateTo("dashboard")}
+          onOpenAIChat={() => setIsAIChatOpen(true)}
+        />
+        <AIChatModal
+          isOpen={isAIChatOpen}
+          onClose={() => setIsAIChatOpen(false)}
+        />
+      </>
+    );
+  }
 
   // =====================================================
   // EMI CALCULATOR
   // =====================================================
-
-  if (
-    isLoggedIn &&
-    currentPage ===
-      "emi"
-  ) {
-
+  if (currentPage === "emi") {
     return (
-
       <EMICalculator
-
-        onBack={() => {
-
-          setCurrentPage(
-            "dashboard"
-          );
-
-        }}
-
+        onBack={() => navigateTo(isLoggedIn ? "dashboard" : "landing")}
       />
-
     );
+  }
 
+  // =====================================================
+  // BANK / LOAN COMPARISON
+  // =====================================================
+  if (currentPage === "comparison") {
+    return (
+      <>
+        <LoanComparison
+          onBack={() => navigateTo(isLoggedIn ? "dashboard" : "landing")}
+          onApplyLoan={() => {
+            if (isLoggedIn) {
+              navigateTo("apply");
+            } else {
+              setShowLogin(true);
+            }
+          }}
+        />
+        <AIChatModal
+          isOpen={isAIChatOpen}
+          onClose={() => setIsAIChatOpen(false)}
+        />
+      </>
+    );
+  }
+
+  // =====================================================
+  // PRIVACY POLICY
+  // =====================================================
+  if (currentPage === "privacy") {
+    return (
+      <PrivacyPolicy
+        onBack={() => navigateTo(isLoggedIn ? "dashboard" : "landing")}
+      />
+    );
+  }
+
+  // =====================================================
+  // TERMS & CONDITIONS
+  // =====================================================
+  if (currentPage === "terms") {
+    return (
+      <TermsAndConditions
+        onBack={() => navigateTo(isLoggedIn ? "dashboard" : "landing")}
+      />
+    );
   }
 
 
@@ -810,6 +579,12 @@ export default function App() {
           setActiveSection
         }
 
+        onOpenComparison={() =>
+          navigateTo('comparison')
+        }
+
+        onNavigateTo={navigateTo}
+
       />
 
 
@@ -850,12 +625,16 @@ export default function App() {
             handleApplyLoan
           }
 
-          onPayEmi={
-            handlePayEmi
-          }
+          onOpenLogin={handleOpenLogin}
+          isLoggedIn={isLoggedIn}
+          onNavigateTo={navigateTo}
 
         />
 
+
+        {/* =================================================
+            LANDING PAGE DIGITAL TWIN PREVIEW
+            ================================================= */}
 
         <DigitalTwin
 
@@ -878,19 +657,21 @@ export default function App() {
           ================================================= */}
 
       <Footer
-
         onOpenCheckEligibility={
           handleCheckEligibility
         }
-
         onOpenApply={
           handleApplyLoan
         }
-
         setActiveSection={
           setActiveSection
         }
-
+        onNavigateTo={
+          navigateTo
+        }
+        onOpenComparison={() =>
+          navigateTo("comparison")
+        }
       />
 
 
@@ -1072,7 +853,6 @@ export default function App() {
             flex
             items-center
             space-x-2.5
-            rounded-2xl
             glass-panel
             border
             border-[#4edea3]/50

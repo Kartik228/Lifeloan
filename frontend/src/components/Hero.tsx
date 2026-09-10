@@ -99,7 +99,7 @@ export const Hero: React.FC<HeroProps> = ({ onOpenCheckEligibility, onOpenApply 
                 </div>
 
                 <div className="mt-2 text-2xl font-bold tracking-tight text-[#dde4dd]">
-                  $14,250,000
+                  ₹1,42,50,000
                 </div>
 
                 <div className="mt-1 flex items-center space-x-1 text-xs font-medium text-[#4edea3]">
@@ -197,7 +197,7 @@ export const Hero: React.FC<HeroProps> = ({ onOpenCheckEligibility, onOpenApply 
                 </div>
                 <div className="rounded-lg bg-[#161d19] p-2 border border-[#242c27]">
                   <div className="text-[10px] text-[#bbcabf]">Borrowing Power</div>
-                  <div className="text-base font-bold text-[#4edea3] font-mono">$1,250,000</div>
+                  <div className="text-base font-bold text-[#4edea3] font-mono">₹25,00,000</div>
                   <div className="mt-1 flex items-center justify-between text-[9px] text-[#86948a]">
                     <span>Pre-Approved</span>
                     <span className="text-[#10b981]">● Active</span>
