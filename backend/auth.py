@@ -4,8 +4,6 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from jose import jwt, JWTError
-from passlib.context import CryptContext
-from passlib.exc import UnknownHashError
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -28,11 +26,6 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours for seamless session experience
 
 
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto"
-)
-
 security = HTTPBearer(auto_error=True)
 optional_security = HTTPBearer(auto_error=False)
 
@@ -41,7 +34,12 @@ def hash_password(password: str) -> str:
     """
     Convert a plain-text password into a secure bcrypt hash.
     """
-    return pwd_context.hash(password)
+    import bcrypt
+
+    return bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt()
+    ).decode("utf-8")
 
 
 def verify_password(
@@ -50,20 +48,14 @@ def verify_password(
 ) -> bool:
     """
     Verify a password against its stored bcrypt hash.
-
-    If the database contains an old/invalid password value,
-    return False instead of crashing the API with a 500 error.
     """
+    import bcrypt
 
     try:
-        return pwd_context.verify(
-            plain_password,
-            hashed_password
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"),
+            hashed_password.encode("utf-8")
         )
-
-    except UnknownHashError:
-        return False
-
     except (ValueError, TypeError):
         return False
 
