@@ -1,7 +1,15 @@
+import os
+
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-DATABASE_URL = "postgresql://postgres:kartik221@localhost:5432/LifeLoan_DB"
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is not set")
 
 engine = create_engine(DATABASE_URL)
 
@@ -10,9 +18,11 @@ SessionLocal = sessionmaker(
     autoflush=False,
     bind=engine
 )
+
 from models import Base
 
 Base.metadata.create_all(bind=engine)
+
 
 def get_db():
     db = SessionLocal()
